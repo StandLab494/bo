@@ -2,11 +2,14 @@ import telebot
 import requests
 import time
 import threading
+import json
+import os
 from datetime import datetime, timedelta
 
 # ===== НАСТРОЙКИ =====
 TOKEN = "8804412117:AAFClU1wzf_qQWymrcmEQ3_pVBCNdxOP1pM"
 OWNER_ID = 8558737152
+DB_FILE = "cityguard_db.json"
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -19,6 +22,65 @@ chats_data = {}
 message_history = {}
 daily_stats = {}
 MAX_WARNS = 3
+
+# ===== СОХРАНЕНИЕ И ЗАГРУЗКА =====
+def save_all_data():
+    """Сохраняет все данные в JSON-файл"""
+    clean_mutes = {}
+    for uid, chats in mutes_data.items():
+        clean_mutes[str(uid)] = {}
+        for cid, dt in chats.items():
+            clean_mutes[str(uid)][str(cid)] = dt.isoformat() if dt else None
+    
+    data = {
+        "staff_data": staff_data,
+        "warns_data": warns_data,
+        "mutes_data": clean_mutes,
+        "bans_data": bans_data,
+        "chats_data": chats_data,
+        "daily_stats": daily_stats
+    }
+    
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def load_all_data():
+    """Загружает все данные из JSON-файла"""
+    global staff_data, warns_data, mutes_data, bans_data, chats_data, daily_stats
+    
+    if not os.path.exists(DB_FILE):
+        return
+    
+    try:
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        staff_data = {int(cid): {int(uid): rank for uid, rank in chats.items()} for cid, chats in data.get("staff_data", {}).items()}
+        warns_data = {int(uid): {int(cid): warns for cid, warns in chats.items()} for uid, chats in data.get("warns_data", {}).items()}
+        bans_data = {int(uid): {int(cid): ban for cid, ban in chats.items()} for uid, chats in data.get("bans_data", {}).items()}
+        
+        mutes_data = {}
+        for uid, chats in data.get("mutes_data", {}).items():
+            mutes_data[int(uid)] = {}
+            for cid, dt_str in chats.items():
+                if dt_str:
+                    mutes_data[int(uid)][int(cid)] = datetime.fromisoformat(dt_str)
+        
+        chats_data = {int(cid): chat for cid, chat in data.get("chats_data", {}).items()}
+        daily_stats = {int(cid): stats for cid, stats in data.get("daily_stats", {}).items()}
+        
+        print("✅ Данные загружены!")
+    except Exception as e:
+        print(f"❌ Ошибка загрузки: {e}")
+
+def auto_save():
+    """Авто-сохранение каждые 30 секунд"""
+    while True:
+        time.sleep(30)
+        try:
+            save_all_data()
+        except Exception as e:
+            print(f"❌ Ошибка сохранения: {e}")
 
 # ===== ФУНКЦИИ РАНГОВ =====
 def get_rank(chat_id, user_id):
@@ -75,9 +137,7 @@ def start(message):
         bot.reply_to(message,
             "🤖 **CityGuard — Чат-менеджер**\n\n"
             "Добавь меня в группу и выдай права админа!\n\n"
-            "📜 /help — список команд\n"
-            "📊 /info — информация\n"
-            "🆔 /id — узнать ID",
+            "📜 /help — список команд",
             parse_mode="Markdown")
 
 @bot.message_handler(commands=['help'])
@@ -85,16 +145,8 @@ def help_cmd(message):
     text = """🤖 **CityGuard — Команды**
 
 👤 **Для всех:**
-/id — свой ID
-/info — информация
-/report — пожаловаться
-/rules — правила
-/staff — персонал
-/daily — статистика дня
-
-🌐 **Утилиты:**
-/translate — перевод
-/anonym — анонимное сообщение
+/id, /info, /report, /rules, /staff
+/translate, /anonym, /daily
 
 🛡️ **Модерация:**
 Ранг 1: /mute, /mutetime, /warn, /kick
@@ -277,6 +329,7 @@ def raising_cmd(message):
         return
     nr = cr + 1
     set_rank(cid, u.id, nr)
+    save_all_data()
     rn = {1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца"}
     bot.reply_to(message, f"⬆️ {u.first_name} → ранг {nr} ({rn[nr]})")
 
@@ -296,6 +349,7 @@ def downgrade_cmd(message):
         return
     nr = cr - 1
     set_rank(cid, u.id, nr)
+    save_all_data()
     rn = {1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца"}
     bot.reply_to(message, f"⬇️ {u.first_name} → ранг {nr} ({rn.get(nr, 'Участник')})")
 
@@ -313,6 +367,7 @@ def gg_cmd(message):
         bot.reply_to(message, f"❌ {u.first_name} и так без ранга!")
         return
     set_rank(cid, u.id, 0)
+    save_all_data()
     bot.reply_to(message, f"💀 {u.first_name} лишён ранга!")
 
 # ===== МОДЕРАЦИЯ =====
@@ -346,16 +401,19 @@ def warn_cmd(message):
         if cr > 0:
             set_rank(cid, u.id, cr - 1)
             warns_data[u.id][cid] = []
+            save_all_data()
             rn = {0: "Участник", 1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца"}
             bot.reply_to(message, f"🚨 {u.first_name} 3/3!\n⬇️ Ранг → {cr-1} ({rn[cr-1]})")
         else:
             try:
                 bot.restrict_chat_member(cid, u.id, until_date=datetime.now() + timedelta(hours=1))
                 warns_data[u.id][cid] = []
+                save_all_data()
                 bot.reply_to(message, f"🚨 {u.first_name} 3/3!\n🔇 Мут 1 час (нет ранга)")
             except:
                 bot.reply_to(message, f"⚠️ 3/3! Нужен мут, но нет прав!")
     else:
+        save_all_data()
         bot.reply_to(message, f"⚠️ {u.first_name} — {wc}/{MAX_WARNS}\nПричина: {reason}")
 
 @bot.message_handler(commands=['mute'])
@@ -373,6 +431,7 @@ def mute_cmd(message):
         if u.id not in mutes_data:
             mutes_data[u.id] = {}
         mutes_data[u.id][cid] = datetime.now() + timedelta(days=3650)
+        save_all_data()
         bot.reply_to(message, f"🔇 {u.first_name} замучен навсегда!")
     except:
         bot.reply_to(message, "❌ Не удалось!")
@@ -401,6 +460,7 @@ def mutetime_cmd(message):
         if u.id not in mutes_data:
             mutes_data[u.id] = {}
         mutes_data[u.id][cid] = datetime.now() + timedelta(minutes=mins)
+        save_all_data()
         bot.reply_to(message, f"🔇 {u.first_name} замучен на {mins} мин!")
     except:
         bot.reply_to(message, "❌ Не удалось!")
@@ -419,6 +479,7 @@ def unmute_cmd(message):
         bot.restrict_chat_member(cid, u.id, can_send_messages=True)
         if u.id in mutes_data:
             mutes_data[u.id].pop(cid, None)
+        save_all_data()
         bot.reply_to(message, f"🔊 {u.first_name} размучен!")
     except:
         bot.reply_to(message, "❌ Не удалось!")
@@ -444,6 +505,7 @@ def bantime_cmd(message):
     cid = message.chat.id
     try:
         bot.ban_chat_member(cid, u.id, until_date=datetime.now() + timedelta(minutes=mins))
+        save_all_data()
         bot.reply_to(message, f"🚫 {u.first_name} забанен на {mins} мин!")
     except:
         bot.reply_to(message, "❌ Не удалось!")
@@ -465,6 +527,7 @@ def ban_cmd(message):
         if u.id not in bans_data:
             bans_data[u.id] = {}
         bans_data[u.id][cid] = True
+        save_all_data()
         bot.reply_to(message, f"🚫 {u.first_name} забанен!\nПричина: {reason}")
     except:
         bot.reply_to(message, "❌ Не удалось!")
@@ -500,6 +563,7 @@ def unban_cmd(message):
         bot.unban_chat_member(message.chat.id, uid)
         if uid in bans_data:
             bans_data[uid].pop(message.chat.id, None)
+        save_all_data()
         bot.reply_to(message, f"✅ {uid} разбанен!")
     except:
         bot.reply_to(message, "❌ Ошибка!")
@@ -515,6 +579,7 @@ def setrules_cmd(message):
         bot.reply_to(message, "❌ /setrules [текст]")
         return
     get_chat_data(message.chat.id)['rules'] = args[1]
+    save_all_data()
     bot.reply_to(message, "✅ Правила обновлены!")
 
 @bot.message_handler(commands=['setwelcome'])
@@ -527,6 +592,7 @@ def setwelcome_cmd(message):
         bot.reply_to(message, "❌ /setwelcome [текст]")
         return
     get_chat_data(message.chat.id)['welcome'] = args[1]
+    save_all_data()
     bot.reply_to(message, "✅ Приветствие обновлено!")
 
 @bot.message_handler(commands=['welcome_on'])
@@ -535,6 +601,7 @@ def welcome_on(message):
         bot.reply_to(message, "❌ Только владелец!")
         return
     get_chat_data(message.chat.id)['welcome_enabled'] = True
+    save_all_data()
     bot.reply_to(message, "✅ Приветствие включено!")
 
 @bot.message_handler(commands=['welcome_off'])
@@ -543,6 +610,7 @@ def welcome_off(message):
         bot.reply_to(message, "❌ Только владелец!")
         return
     get_chat_data(message.chat.id)['welcome_enabled'] = False
+    save_all_data()
     bot.reply_to(message, "✅ Приветствие выключено!")
 
 # ===== ПРИВЕТСТВИЕ =====
@@ -648,5 +716,7 @@ def auto_daily_report():
 
 # ===== ЗАПУСК =====
 print("🤖 CityGuard запущен!")
+load_all_data()
 threading.Thread(target=auto_daily_report, daemon=True).start()
+threading.Thread(target=auto_save, daemon=True).start()
 bot.infinity_polling()
