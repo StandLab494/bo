@@ -28,6 +28,7 @@ daily_stats = {}
 user_profiles = {}
 vip_data = {}
 economy = {}
+temp_data = {}
 start_time = datetime.now()
 
 VIP_LEVELS = {
@@ -78,14 +79,30 @@ def save_all_data():
         "daily_stats": daily_stats,
         "user_profiles": user_profiles,
         "vip_data": vip_data,
-        "economy": economy
+        "economy": economy,
+        "temp_data": temp_data_serializable()
     }
     
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+def temp_data_serializable():
+    """Конвертирует temp_data в сериализуемый формат"""
+    result = {}
+    for uid, data in temp_data.items():
+        result[str(uid)] = {}
+        for key, value in data.items():
+            if "until" in value and value["until"]:
+                result[str(uid)][key] = {
+                    "level": value["level"],
+                    "until": value["until"].isoformat()
+                }
+            else:
+                result[str(uid)][key] = value
+    return result
+
 def load_all_data():
-    global staff_data, warns_data, mutes_data, bans_data, chats_data, daily_stats, user_profiles, vip_data, economy
+    global staff_data, warns_data, mutes_data, bans_data, chats_data, daily_stats, user_profiles, vip_data, economy, temp_data
     
     if not os.path.exists(DB_FILE):
         return
@@ -111,14 +128,53 @@ def load_all_data():
         vip_data = data.get("vip_data", {})
         economy = data.get("economy", {})
         
+        temp_data = {}
+        for uid, items in data.get("temp_data", {}).items():
+            temp_data[int(uid)] = {}
+            for key, value in items.items():
+                if "until" in value and value["until"]:
+                    temp_data[int(uid)][key] = {
+                        "level": value["level"],
+                        "until": datetime.fromisoformat(value["until"])
+                    }
+                else:
+                    temp_data[int(uid)][key] = value
+        
         print("✅ Данные загружены!")
     except Exception as e:
         print(f"❌ Ошибка загрузки: {e}")
+
+def check_temp_expired():
+    """Проверяет и убирает просроченные временные выдачи"""
+    now = datetime.now()
+    for uid in list(temp_data.keys()):
+        data = temp_data[uid]
+        
+        if "vip" in data and data["vip"].get("until") and data["vip"]["until"] < now:
+            vip_data.pop(str(uid), None)
+            del temp_data[uid]["vip"]
+            try:
+                bot.send_message(uid, "⏰ Время вашего VIP истекло!")
+            except:
+                pass
+        
+        if "rank" in data and data["rank"].get("until") and data["rank"]["until"] < now:
+            for cid in list(staff_data.keys()):
+                staff_data[cid].pop(uid, None)
+            del temp_data[uid]["rank"]
+            try:
+                bot.send_message(uid, "⏰ Время вашего ранга истекло!")
+            except:
+                pass
+        
+        if uid in temp_data and not temp_data[uid]:
+            del temp_data[uid]
 
 def auto_save():
     while True:
         time.sleep(30)
         try:
+            check_temp_expired()
             save_all_data()
         except Exception as e:
             print(f"❌ Ошибка сохранения: {e}")
@@ -395,6 +451,162 @@ def pay_cmd(message):
     save_all_data()
     bot.reply_to(message, f"✅ Переведено {amount} 🧱 пользователю {target}")
 
+# ===== ВЫДАЧА ОТ ВЛАДЕЛЬЦА =====
+@bot.message_handler(commands=['gift'])
+def gift_cmd(message):
+    if message.from_user.id != OWNER_ID:
+        bot.reply_to(message, "❌ Только владелец бота!")
+        return
+    
+    args = message.text.split()
+    if len(args) < 3:
+        bot.reply_to(message, 
+            "❌ Используй: /gift [ID] [что] [кол-во] [время]\n\n"
+            "📋 **Что можно выдать:**\n"
+            "• vip [1-3] [время] — выдать VIP на время\n"
+            "• bricks [сумма] — выдать кирпичи\n"
+            "• rank [1-3] [время] — выдать ранг на время\n"
+            "• unwarn — снять все варны\n"
+            "• reset — сбросить игрока\n\n"
+            "⏰ **Форматы времени:**\n"
+            "• 1h — 1 час\n• 1d — 1 день\n• 7d — 7 дней\n• 30d — 30 дней\n• perm — навсегда\n\n"
+            "Примеры:\n"
+            "/gift 123456789 vip 3 7d\n"
+            "/gift 123456789 bricks 5000\n"
+            "/gift 123456789 rank 2 1d\n"
+            "/gift 123456789 vip 1 perm")
+        return
+    
+    try:
+        target_id = int(args[1])
+        action = args[2].lower()
+    except:
+        bot.reply_to(message, "❌ Неверный ID!")
+        return
+    
+    if action == "vip":
+        if len(args) < 4:
+            bot.reply_to(message, "❌ /gift [ID] vip [1-3] [время]")
+            return
+        try:
+            level = int(args[3])
+        except:
+            bot.reply_to(message, "❌ Уровень должен быть числом!")
+            return
+        if level < 1 or level > 3:
+            bot.reply_to(message, "❌ Уровень VIP: 1, 2 или 3!")
+            return
+        
+        time_str = args[4] if len(args) > 4 else "perm"
+        until = None
+        if time_str != "perm":
+            match = re.match(r'(\d+)(h|d)', time_str)
+            if match:
+                num = int(match.group(1))
+                unit = match.group(2)
+                until = datetime.now() + timedelta(hours=num) if unit == 'h' else datetime.now() + timedelta(days=num)
+            else:
+                bot.reply_to(message, "❌ Неверный формат времени!")
+                return
+        
+        vip_data[str(target_id)] = {"level": level, "color": "purple"}
+        if until:
+            if str(target_id) not in temp_data:
+                temp_data[str(target_id)] = {}
+            temp_data[str(target_id)]["vip"] = {"level": level, "until": until}
+        
+        save_all_data()
+        info = VIP_LEVELS[level]
+        time_display = f"на {time_str}" if until else "навсегда"
+        bot.reply_to(message, f"✅ {info['color']} {info['name']} выдан {target_id} {time_display}!")
+        try:
+            bot.send_message(target_id, f"🎉 Вам выдан {info['color']} **{info['name']}** {time_display}!\n/viphelp — список команд.", parse_mode="Markdown")
+        except:
+            pass
+    
+    elif action == "bricks":
+        if len(args) < 4:
+            bot.reply_to(message, "❌ /gift [ID] bricks [сумма]")
+            return
+        try:
+            amount = int(args[3])
+        except:
+            bot.reply_to(message, "❌ Сумма должна быть числом!")
+            return
+        add_bricks(target_id, amount)
+        save_all_data()
+        bot.reply_to(message, f"✅ {amount:,} 🧱 выдано {target_id}!")
+        try:
+            bot.send_message(target_id, f"🎁 Вам выдано {amount:,} 🧱!\nБаланс: {get_balance(target_id)['balance']:,} 🧱")
+        except:
+            pass
+    
+    elif action == "rank":
+        if len(args) < 4:
+            bot.reply_to(message, "❌ /gift [ID] rank [1-3] [время]")
+            return
+        try:
+            rank_level = int(args[3])
+        except:
+            bot.reply_to(message, "❌ Ранг должен быть числом!")
+            return
+        if rank_level < 1 or rank_level > 3:
+            bot.reply_to(message, "❌ Ранг: 1-Модератор, 2-Мл.владелец, 3-Пом.владельца")
+            return
+        
+        time_str = args[4] if len(args) > 4 else "perm"
+        until = None
+        if time_str != "perm":
+            match = re.match(r'(\d+)(h|d)', time_str)
+            if match:
+                num = int(match.group(1))
+                unit = match.group(2)
+                until = datetime.now() + timedelta(hours=num) if unit == 'h' else datetime.now() + timedelta(days=num)
+            else:
+                bot.reply_to(message, "❌ Неверный формат времени!")
+                return
+        
+        for cid in chats_data.keys():
+            set_rank(int(cid), target_id, rank_level)
+        if until:
+            if str(target_id) not in temp_data:
+                temp_data[str(target_id)] = {}
+            temp_data[str(target_id)]["rank"] = {"level": rank_level, "until": until}
+        
+        save_all_data()
+        rank_names = {1: "Модератор", 2: "Младший владелец", 3: "Помощник владельца"}
+        time_display = f"на {time_str}" if until else "навсегда"
+        bot.reply_to(message, f"✅ Ранг {rank_level} ({rank_names[rank_level]}) выдан {target_id} {time_display}!")
+        try:
+            bot.send_message(target_id, f"🎖 Вам выдан ранг: **{rank_names[rank_level]}** {time_display}!", parse_mode="Markdown")
+        except:
+            pass
+    
+    elif action == "unwarn":
+        if str(target_id) in warns_data:
+            warns_data[str(target_id)] = {}
+            save_all_data()
+            bot.reply_to(message, f"✅ Все варны сняты с {target_id}!")
+        else:
+            bot.reply_to(message, f"❌ У {target_id} нет варнов!")
+    
+    elif action == "reset":
+        uid = str(target_id)
+        economy.pop(uid, None)
+        vip_data.pop(uid, None)
+        warns_data.pop(uid, None)
+        mutes_data.pop(uid, None)
+        bans_data.pop(uid, None)
+        user_profiles.pop(uid, None)
+        temp_data.pop(target_id, None)
+        for cid in staff_data:
+            staff_data[cid].pop(target_id, None)
+        save_all_data()
+        bot.reply_to(message, f"💀 Игрок {target_id} полностью сброшен!")
+    
+    else:
+        bot.reply_to(message, f"❌ Неизвестное действие: {action}\nДоступно: vip, bricks, rank, unwarn, reset")
+
 # ===== VIP-КОМАНДЫ =====
 @bot.message_handler(commands=['viphelp'])
 def vip_help(message):
@@ -635,16 +847,13 @@ def msg_cmd(message):
     if message.from_user.id != OWNER_ID:
         bot.reply_to(message, "❌ Только владелец бота!")
         return
-    
     args = message.text.split(maxsplit=2)
     if len(args) < 3:
-        bot.reply_to(message, "❌ Используй: /msg [юзернейм или ID] [сообщение]\nПример: /msg @username Привет!")
+        bot.reply_to(message, "❌ Используй: /msg [юзернейм или ID] [сообщение]")
         return
-    
     target = args[1]
     text = args[2]
     target_id = None
-    
     if target.startswith("@"):
         target = target[1:]
     else:
@@ -653,13 +862,11 @@ def msg_cmd(message):
         except:
             bot.reply_to(message, "❌ Неверный юзернейм или ID!")
             return
-    
     try:
         if target_id:
             bot.send_message(target_id, f"📨 **Сообщение от администрации:**\n\n{text}", parse_mode="Markdown")
         else:
             bot.send_message(f"@{target}", f"📨 **Сообщение от администрации:**\n\n{text}", parse_mode="Markdown")
-        
         bot.reply_to(message, f"✅ Сообщение отправлено: {target}")
     except Exception as e:
         bot.reply_to(message, f"❌ Не удалось отправить сообщение!\nОшибка: {e}")
@@ -669,18 +876,14 @@ def dmall_cmd(message):
     if message.from_user.id != OWNER_ID:
         bot.reply_to(message, "❌ Только владелец бота!")
         return
-    
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
         bot.reply_to(message, "❌ /dmall [сообщение]")
         return
-    
     text = args[1]
     sent = 0
     failed = 0
-    
     bot.reply_to(message, "⏳ Начинаю рассылку...")
-    
     for uid in list(economy.keys()):
         try:
             bot.send_message(int(uid), f"📢 **Массовое уведомление:**\n\n{text}", parse_mode="Markdown")
@@ -688,7 +891,6 @@ def dmall_cmd(message):
             time.sleep(0.05)
         except:
             failed += 1
-    
     bot.reply_to(message, f"✅ Рассылка завершена!\nОтправлено: {sent}\nНе удалось: {failed}")
 
 # ===== КОМАНДЫ ДЛЯ ВСЕХ =====
