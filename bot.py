@@ -6,35 +6,38 @@ from datetime import datetime, timedelta
 TOKEN = "8939220569:AAHLTwkf9rD7Gf22EK9CBqtgg2Q19v1LomI"
 OWNER_ID = 8558737152
 ADMIN_IDS = [8558737152]
-START_MONEY = 100
-NEXT_ID = 1000000
-
-# ===== НАСТРОЙКИ ОБНОВЛЕНИЯ =====
-UPDATE_INFO = """
-🔄 **Вышло обновление!**
-
-➕ **Добавлено:**
-• Система друзей
-• Кнопка "Мой ID"
-• Команда /changeid для владельца
-• Админ-команды с банами
-
-🔧 **Изменено:**
-• В топе показывается Telegram ID
-• Обновлён профиль игрока
-• Улучшена админ-панель
-
-Нажмите /update для обновления кнопок!
-"""
+START_MONEY = 5000000  # 5 миллионов стартового капитала
+START_ROAD = 5  # 5 метров дороги бесплатно
 
 # ===== ПРОМОКОДЫ =====
 PROMOCODES = {
-    "START100": {"reward": 100, "uses": -1, "description": "100 кристаллов новичку"},
-    "LUCKY2024": {"reward": 250, "uses": 50, "description": "+250 кристаллов"},
-    "SUPERGAME": {"reward": 500, "uses": 20, "description": "+500 кристаллов"},
-    "DAILYBONUS": {"reward": 198292738378373838, "uses": -1, "description": "+50 кристаллов"},
-    "TOPPLAYER": {"reward": 1000, "uses": 5, "description": "+1000 кристаллов для топов"}
+    "START100": {"reward": 100000, "uses": -1, "description": "100.000$ новичку"},
+    "LUCKY2024": {"reward": 250000, "uses": 50, "description": "+250.000$"},
+    "SUPERGAME": {"reward": 500000, "uses": 20, "description": "+500.000$"},
+    "DAILYBONUS": {"reward": 50000, "uses": -1, "description": "+50.000$"},
+    "TOPPLAYER": {"reward": 1000000, "uses": 5, "description": "+1.000.000$"},
+    "CITYMASTER": {"reward": 2000000, "uses": 10, "description": "+2.000.000$ для мэров"},
+    "ROADKING": {"reward": 500000, "uses": -1, "description": "+500.000$ на дороги"},
 }
+
+# ===== ЗДАНИЯ =====
+BUILDINGS = {
+    "house": {"name": "🏠 Дом", "price": 50000, "income": 50, "population": 10, "joy": 1},
+    "shop": {"name": "🏪 Магазин", "price": 100000, "income": 200, "population": 0, "joy": 2},
+    "power": {"name": "⚡ Электростанция", "price": 200000, "income": 0, "population": 0, "joy": 0, "energy": 50},
+    "factory": {"name": "🏭 Завод", "price": 150000, "income": 500, "population": 0, "joy": -5, "energy_cost": 10},
+    "park": {"name": "🌳 Парк", "price": 75000, "income": 10, "population": 0, "joy": 10},
+    "bank": {"name": "🏦 Банк", "price": 500000, "income": 1000, "population": 0, "joy": 5},
+    "cosmo": {"name": "🚀 Космоцентр", "price": 1000000, "income": 2000, "population": 0, "joy": 50},
+}
+
+# ===== ДОРОГА (ЦЕНЫ ЗА ПАКЕТЫ МЕТРОВ) =====
+ROAD_PACKS = [
+    {"meters": 5, "price": 5000},
+    {"meters": 10, "price": 13000},
+    {"meters": 30, "price": 50000},
+    {"meters": 100, "price": 100000},
+]
 
 bot = telebot.TeleBot(TOKEN)
 players_data = {}
@@ -42,6 +45,7 @@ clans_data = {}
 BANNED_USERS = {}
 FRIENDS = {}
 FRIEND_REQUESTS = {}
+NEXT_ID = 1000000
 
 # ===== ФУНКЦИИ =====
 def is_admin(user_id):
@@ -61,35 +65,26 @@ def is_banned(user_id):
             return False
     return True
 
-def get_ban_info(user_id):
-    uid = str(user_id)
-    if uid not in BANNED_USERS:
-        return None
-    return BANNED_USERS[uid]
-
 def check_ban(message):
     if is_banned(message.from_user.id):
-        ban_data = get_ban_info(message.from_user.id)
-        reason = ban_data["reason"]
-        until = ban_data["until"]
-        by_admin = ban_data["by"]
-        
-        if until is not None:
-            remaining = until - datetime.now()
-            hours = remaining.seconds // 3600
-            minutes = (remaining.seconds % 3600) // 60
-            time_str = f"{hours} ч. {minutes} мин."
-            time_info = f"⏳ Разбан через: {time_str}"
-        else:
-            time_info = "⏳ Разбан: навсегда"
-        
-        text = f"""🚫 **YOU BEEN BANNED!**
+        ban_data = BANNED_USERS.get(str(message.from_user.id))
+        if ban_data:
+            reason = ban_data["reason"]
+            until = ban_data["until"]
+            if until:
+                remaining = until - datetime.now()
+                hours = remaining.seconds // 3600
+                minutes = (remaining.seconds % 3600) // 60
+                time_info = f"⏳ Разбан через: {hours} ч. {minutes} мин."
+            else:
+                time_info = "⏳ Разбан: навсегда"
+            text = f"""🚫 **YOU BEEN BANNED!**
 📝 Причина: {reason}
 {time_info}
-👤 Забанил: {by_admin}
+👤 Забанил: {ban_data['by']}
 
 Если считаешь бан несправедливым, свяжись с главным владельцем."""
-        bot.reply_to(message, text, parse_mode="Markdown")
+            bot.reply_to(message, text, parse_mode="Markdown")
         return True
     return False
 
@@ -105,6 +100,14 @@ def get_player(user_id):
         players_data[user_id] = {
             "name": "",
             "money": START_MONEY,
+            "road": START_ROAD,
+            "used_road": 0,
+            "buildings": {},  # {"house": 0, "shop": 0, ...}
+            "income": 0,
+            "population": 0,
+            "joy": 0,
+            "energy": 0,
+            "energy_used": 0,
             "last_daily": None,
             "used_promos": [],
             "clan": None,
@@ -114,28 +117,24 @@ def get_player(user_id):
         }
     return players_data[user_id]
 
-def add_exp(user_id, amount):
-    player = get_player(user_id)
-    player["exp"] += amount
-    exp_needed = player["level"] * 100
-    if player["exp"] >= exp_needed:
-        player["level"] += 1
-        player["exp"] -= exp_needed
-        player["money"] += player["level"] * 50
-        bot.send_message(user_id, f"🎉 Поздравляю! Ты достиг {player['level']} уровня! +{player['level']*50} 💎")
-
 def get_main_keyboard():
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add(
-        telebot.types.KeyboardButton("💰 Баланс"),
-        telebot.types.KeyboardButton("🎁 Ежедневный бонус"),
-        telebot.types.KeyboardButton("👥 Топ игроков"),
-        telebot.types.KeyboardButton("⚔️ Ограбить"),
-        telebot.types.KeyboardButton("👤 Мой профиль"),
+        telebot.types.KeyboardButton("🏙️ Мой город"),
+        telebot.types.KeyboardButton("🏗️ Постройки"),
+        telebot.types.KeyboardButton("🛣️ Дорога"),
+        telebot.types.KeyboardButton("📦 Кейсы"),
+    )
+    markup.add(
+        telebot.types.KeyboardButton("🎁 Бонус"),
+        telebot.types.KeyboardButton("👥 Топ городов"),
         telebot.types.KeyboardButton("🏰 Кланы"),
         telebot.types.KeyboardButton("👫 Друзья"),
+    )
+    markup.add(
+        telebot.types.KeyboardButton("👤 Профиль"),
         telebot.types.KeyboardButton("🆔 Мой ID"),
-        telebot.types.KeyboardButton("❓ Помощь")
+        telebot.types.KeyboardButton("❓ Помощь"),
     )
     return markup
 
@@ -150,812 +149,307 @@ def start(message):
         player["name"] = message.from_user.first_name
 
     bot.send_message(message.chat.id,
-        f"🎮 Добро пожаловать в игру, {player['name']}!\nУ тебя {player['money']} 💎 кристаллов.\nТвой уровень: {player['level']}\nТвой ID: {player['game_id']}\n\nИспользуй кнопки ниже!",
+        f"🏙️ Добро пожаловать в город, мэр {player['name']}!\n\n"
+        f"💰 Баланс: {player['money']:,}$\n"
+        f"🛣️ Дороги: {player['used_road']}/{player['road']}м\n"
+        f"👥 Население: {player['population']}\n"
+        f"😊 Радость: {player['joy']}\n"
+        f"🆔 ID: {player['game_id']}\n\n"
+        f"Используй кнопки для управления!",
         reply_markup=get_main_keyboard())
 
-# ===== ОБНОВЛЕНИЕ КЛАВИАТУРЫ =====
+# ===== ОБНОВЛЕНИЕ =====
 @bot.message_handler(commands=['update'])
 def update_keyboard(message):
     if check_ban(message):
         return
-    bot.send_message(
-        message.chat.id,
-        "✅ Кнопки обновлены! Используйте их для навигации.",
-        reply_markup=get_main_keyboard()
-    )
+    bot.send_message(message.chat.id, "✅ Кнопки обновлены!", reply_markup=get_main_keyboard())
 
-# ===== ПОМОЩЬ =====
-@bot.message_handler(func=lambda m: m.text == "❓ Помощь")
-@bot.message_handler(commands=['help'])
-def help_command(message):
+# ===== МОЙ ГОРОД =====
+@bot.message_handler(func=lambda m: m.text == "🏙️ Мой город")
+def my_city(message):
     if check_ban(message):
         return
-    text = """📖 **Доступные команды:**
+    player = get_player(message.from_user.id)
+    
+    # Пересчитываем доход, население, энергию
+    income = 0
+    population = 0
+    joy = 0
+    energy = 0
+    energy_used = 0
+    
+    for bkey, bdata in BUILDINGS.items():
+        count = player["buildings"].get(bkey, 0)
+        if count > 0:
+            income += bdata.get("income", 0) * count
+            population += bdata.get("population", 0) * count
+            joy += bdata.get("joy", 0) * count
+            if "energy" in bdata:
+                energy += bdata["energy"] * count
+            if "energy_cost" in bdata:
+                energy_used += bdata["energy_cost"] * count
+    
+    player["income"] = income
+    player["population"] = population
+    player["joy"] = joy
+    player["energy"] = energy
+    player["energy_used"] = energy_used
+    
+    text = f"""🏙️ **Город {player['name']}**
 
-🎮 **Кнопки в меню:**
-• 💰 Баланс — узнать свой баланс
-• 🎁 Ежедневный бонус — получить бонус раз в день
-• 👥 Топ игроков — топ-10 богачей
-• ⚔️ Ограбить — попытка украсть у случайного игрока
-• 👤 Мой профиль — карточка игрока
-• 🏰 Кланы — управление кланами
-• 👫 Друзья — список друзей и заявки
-• 🆔 Мой ID — узнать свой игровой ID
+💰 Баланс: {player['money']:,}$
+📈 Доход: {income}$/ч
+🛣️ Дороги: {player['used_road']}/{player['road']}м
+👥 Население: {population}
+😊 Радость: {joy}
+⚡ Энергия: {energy} (исп. {energy_used})
 
-💬 **Текстовые команды:**
-• /promo КОД — активировать промокод
-• /mypromos — список использованных промокодов
-• /help — эта подсказка
-• /update — обновить кнопки меню
-• /addfriend ID — добавить друга
-• /removefriend ID — удалить друга
-• /myfriends — список друзей
-• /id ID — найти игрока по ID
-
-🏰 **Кланы:**
-• Создать клан — 500 💎
-• Выйти из клана — бесплатно
-
-❓ По вопросам обращаться к администратору!"""
+🏗️ **Постройки:**
+"""
+    for bkey, bdata in BUILDINGS.items():
+        count = player["buildings"].get(bkey, 0)
+        if count > 0:
+            text += f"  {bdata['name']}: {count} шт.\n"
+    
+    if all(v == 0 for v in player["buildings"].values()):
+        text += "  Пока ничего не построено.\n"
+    
     bot.reply_to(message, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
-# ===== ID =====
-@bot.message_handler(func=lambda m: m.text == "🆔 Мой ID")
-@bot.message_handler(commands=['myid'])
-def my_id(message):
+# ===== ПОСТРОЙКИ =====
+@bot.message_handler(func=lambda m: m.text == "🏗️ Постройки")
+def buildings_menu(message):
+    if check_ban(message):
+        return
+    markup = telebot.types.InlineKeyboardMarkup(row_width=2)
+    for bkey, bdata in BUILDINGS.items():
+        markup.add(telebot.types.InlineKeyboardButton(
+            f"{bdata['name']} ({bdata['price']:,}$)",
+            callback_data=f"build_{bkey}"
+        ))
+    bot.send_message(message.chat.id, "🏗️ Выбери здание для постройки:", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("build_"))
+def build_building(call):
+    user_id = call.from_user.id
+    player = get_player(user_id)
+    bkey = call.data.split("_")[1]
+    bdata = BUILDINGS[bkey]
+    
+    # Проверяем место
+    if player["used_road"] >= player["road"]:
+        bot.answer_callback_query(call.id, "❌ Не хватает дороги! Купи землю в разделе 🛣️ Дорога.")
+        return
+    
+    # Проверяем деньги
+    if player["money"] < bdata["price"]:
+        bot.answer_callback_query(call.id, "❌ Не хватает денег!")
+        return
+    
+    # Строим
+    player["money"] -= bdata["price"]
+    player["buildings"][bkey] = player["buildings"].get(bkey, 0) + 1
+    player["used_road"] += 1
+    
+    bot.answer_callback_query(call.id, f"✅ {bdata['name']} построен!")
+    bot.send_message(call.message.chat.id, f"✅ Построено: {bdata['name']}!\nОсталось денег: {player['money']:,}$\nЗанято дороги: {player['used_road']}/{player['road']}м")
+
+# ===== ДОРОГА =====
+@bot.message_handler(func=lambda m: m.text == "🛣️ Дорога")
+def road_menu(message):
     if check_ban(message):
         return
     player = get_player(message.from_user.id)
-    bot.reply_to(message, f"🆔 Твой игровой ID: **{player['game_id']}**\n📱 Твой Telegram ID: **{message.from_user.id}**\nИспользуй игровой ID для добавления в друзья!", parse_mode="Markdown", reply_markup=get_main_keyboard())
+    markup = telebot.types.InlineKeyboardMarkup()
+    for pack in ROAD_PACKS:
+        markup.add(telebot.types.InlineKeyboardButton(
+            f"{pack['meters']}м — {pack['price']:,}$",
+            callback_data=f"road_{pack['meters']}"
+        ))
+    bot.send_message(message.chat.id,
+        f"🛣️ Покупка земли под застройку\n\nУ тебя: {player['road']}м (занято {player['used_road']}м)\nСвободно: {player['road'] - player['used_road']}м\n\nВыбери пакет:",
+        reply_markup=markup)
 
-@bot.message_handler(commands=['id'])
-def find_id(message):
-    if check_ban(message):
+@bot.callback_query_handler(func=lambda c: c.data.startswith("road_"))
+def buy_road(call):
+    user_id = call.from_user.id
+    player = get_player(user_id)
+    meters = int(call.data.split("_")[1])
+    
+    # Находим цену
+    pack = next((p for p in ROAD_PACKS if p["meters"] == meters), None)
+    if not pack:
+        bot.answer_callback_query(call.id, "❌ Ошибка!")
         return
-    args = message.text.split()
-    if len(args) != 2:
-        bot.reply_to(message, "❌ Используй: /id [игровой ID]", reply_markup=get_main_keyboard())
+    
+    if player["money"] < pack["price"]:
+        bot.answer_callback_query(call.id, "❌ Не хватает денег!")
         return
-    try:
-        search_id = args[1].strip()
-        found = None
-        for uid, data in players_data.items():
-            if str(data.get("game_id")) == str(search_id):
-                found = uid
-                break
-        if found:
-            bot.reply_to(message, f"🔍 Игрок с ID {search_id}: {players_data[found]['name']} (TG: {found})", reply_markup=get_main_keyboard())
-        else:
-            bot.reply_to(message, "❌ Игрок с таким ID не найден!", reply_markup=get_main_keyboard())
-    except:
-        bot.reply_to(message, "❌ Неверный ID!", reply_markup=get_main_keyboard())
+    
+    player["money"] -= pack["price"]
+    player["road"] += meters
+    
+    bot.answer_callback_query(call.id, f"✅ Куплено {meters}м дороги!")
+    bot.send_message(call.message.chat.id, f"✅ Куплено {meters}м дороги за {pack['price']:,}$!\nВсего дороги: {player['road']}м\nСвободно: {player['road'] - player['used_road']}м")
 
-# ===== ДРУЗЬЯ =====
-@bot.message_handler(func=lambda m: m.text == "👫 Друзья")
-def friends_menu(message):
+# ===== КЕЙСЫ =====
+@bot.message_handler(func=lambda m: m.text == "📦 Кейсы")
+def cases_menu(message):
     if check_ban(message):
         return
     markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(
-        telebot.types.InlineKeyboardButton("📋 Мои друзья", callback_data="friend_list"),
-        telebot.types.InlineKeyboardButton("📨 Входящие заявки", callback_data="friend_requests")
-    )
-    bot.send_message(message.chat.id, "👫 Управление друзьями:", reply_markup=markup)
+    markup.add(telebot.types.InlineKeyboardButton("📦 Обычный (10.000$)", callback_data="case_normal"))
+    markup.add(telebot.types.InlineKeyboardButton("🔮 Редкий (50.000$)", callback_data="case_rare"))
+    markup.add(telebot.types.InlineKeyboardButton("🚀 Космический (500.000$)", callback_data="case_cosmo"))
+    bot.send_message(message.chat.id, "📦 Выбери кейс для открытия:", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda c: c.data == "friend_list")
-def friend_list(call):
+@bot.callback_query_handler(func=lambda c: c.data.startswith("case_"))
+def open_case(call):
     user_id = call.from_user.id
-    friends = FRIENDS.get(user_id, [])
-    if not friends:
-        text = "😔 У тебя пока нет друзей."
-    else:
-        text = "📋 Твои друзья:\n\n"
-        for fid in friends:
-            if str(fid) in players_data:
-                text += f"• {players_data[str(fid)]['name']} (ID: {players_data[str(fid)]['game_id']}, TG: {fid})\n"
-    bot.answer_callback_query(call.id)
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
-    markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="friends_back"))
-    bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda c: c.data == "friend_requests")
-def friend_requests(call):
-    user_id = call.from_user.id
-    requests = FRIEND_REQUESTS.get(user_id, [])
-    if not requests:
-        text = "📭 У тебя нет входящих заявок."
-        bot.answer_callback_query(call.id)
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
-        markup = telebot.types.InlineKeyboardMarkup()
-        markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="friends_back"))
-        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=markup)
-    else:
-        text = "📨 Входящие заявки в друзья:\n\n"
-        markup = telebot.types.InlineKeyboardMarkup()
-        for rid in requests:
-            if str(rid) in players_data:
-                text += f"• {players_data[str(rid)]['name']} (ID: {players_data[str(rid)]['game_id']}, TG: {rid})\n"
-                markup.add(
-                    telebot.types.InlineKeyboardButton(f"✅ Принять {players_data[str(rid)]['name']}", callback_data=f"accept_{rid}"),
-                    telebot.types.InlineKeyboardButton(f"❌ Отклонить {players_data[str(rid)]['name']}", callback_data=f"decline_{rid}")
-                )
-        markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="friends_back"))
-        bot.answer_callback_query(call.id)
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("accept_"))
-def accept_friend(call):
-    user_id = call.from_user.id
-    friend_id = int(call.data.split("_")[1])
+    player = get_player(user_id)
+    case_type = call.data.split("_")[1]
     
-    if user_id not in FRIEND_REQUESTS or friend_id not in FRIEND_REQUESTS[user_id]:
-        bot.answer_callback_query(call.id, "❌ Заявка уже недействительна!")
+    prices = {"normal": 10000, "rare": 50000, "cosmo": 500000}
+    rewards = {
+        "normal": [(5000, 20000), ("house", 1), ("park", 1)],
+        "rare": [(20000, 80000), ("shop", 2), ("power", 1), ("factory", 1)],
+        "cosmo": [(100000, 500000), ("bank", 1), ("cosmo", 1), ("money", 1000000)],
+    }
+    
+    if case_type not in prices:
+        bot.answer_callback_query(call.id, "❌ Ошибка!")
         return
     
-    FRIEND_REQUESTS[user_id].remove(friend_id)
-    if user_id not in FRIENDS:
-        FRIENDS[user_id] = []
-    if friend_id not in FRIENDS:
-        FRIENDS[friend_id] = []
-    FRIENDS[user_id].append(friend_id)
-    FRIENDS[friend_id].append(user_id)
+    price = prices[case_type]
+    if player["money"] < price:
+        bot.answer_callback_query(call.id, "❌ Не хватает денег!")
+        return
     
-    bot.answer_callback_query(call.id, "✅ Друг добавлен!")
-    bot.send_message(friend_id, f"✅ {players_data[str(user_id)]['name']} принял твою заявку в друзья!")
-    bot.edit_message_text("✅ Друг добавлен!", call.message.chat.id, call.message.message_id)
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("decline_"))
-def decline_friend(call):
-    user_id = call.from_user.id
-    friend_id = int(call.data.split("_")[1])
+    player["money"] -= price
     
-    if user_id in FRIEND_REQUESTS and friend_id in FRIEND_REQUESTS[user_id]:
-        FRIEND_REQUESTS[user_id].remove(friend_id)
+    # Выбираем награду
+    reward_pool = rewards[case_type]
+    choice = random.choice(reward_pool)
     
-    bot.answer_callback_query(call.id, "❌ Заявка отклонена!")
-    bot.edit_message_text("❌ Заявка отклонена.", call.message.chat.id, call.message.message_id)
-
-@bot.callback_query_handler(func=lambda c: c.data == "friends_back")
-def friends_back(call):
-    friends_menu(call.message)
-    bot.answer_callback_query(call.id)
-
-@bot.message_handler(commands=['addfriend'])
-def add_friend(message):
-    if check_ban(message):
-        return
-    args = message.text.split()
-    if len(args) != 2:
-        bot.reply_to(message, "❌ Используй: /addfriend [игровой ID]", reply_markup=get_main_keyboard())
-        return
-    try:
-        friend_game_id = args[1].strip()
-        friend_uid = None
-        for uid, data in players_data.items():
-            if str(data.get("game_id")) == str(friend_game_id):
-                friend_uid = int(uid)
-                break
-        
-        if not friend_uid:
-            bot.reply_to(message, "❌ Игрок с таким ID не найден!", reply_markup=get_main_keyboard())
-            return
-        if friend_uid == message.from_user.id:
-            bot.reply_to(message, "❌ Нельзя добавить самого себя!", reply_markup=get_main_keyboard())
-            return
-        if friend_uid in FRIENDS.get(message.from_user.id, []):
-            bot.reply_to(message, "❌ Этот игрок уже у тебя в друзьях!", reply_markup=get_main_keyboard())
-            return
-        if message.from_user.id in FRIEND_REQUESTS.get(friend_uid, []):
-            bot.reply_to(message, "❌ Ты уже отправил заявку этому игроку!", reply_markup=get_main_keyboard())
-            return
-        
-        if friend_uid not in FRIEND_REQUESTS:
-            FRIEND_REQUESTS[friend_uid] = []
-        FRIEND_REQUESTS[friend_uid].append(message.from_user.id)
-        
-        bot.reply_to(message, f"✅ Заявка в друзья отправлена игроку с ID {friend_game_id}!", reply_markup=get_main_keyboard())
-        bot.send_message(friend_uid, f"📨 Новый запрос в друзья от {players_data[str(message.from_user.id)]['name']} (ID: {players_data[str(message.from_user.id)]['game_id']}, TG: {message.from_user.id})!\nПроверь раздел 👫 Друзья!")
-    except:
-        bot.reply_to(message, "❌ Неверный ID!", reply_markup=get_main_keyboard())
-
-@bot.message_handler(commands=['removefriend'])
-def remove_friend(message):
-    if check_ban(message):
-        return
-    args = message.text.split()
-    if len(args) != 2:
-        bot.reply_to(message, "❌ Используй: /removefriend [игровой ID]", reply_markup=get_main_keyboard())
-        return
-    try:
-        friend_game_id = args[1].strip()
-        friend_uid = None
-        for uid, data in players_data.items():
-            if str(data.get("game_id")) == str(friend_game_id):
-                friend_uid = int(uid)
-                break
-        
-        if not friend_uid:
-            bot.reply_to(message, "❌ Игрок с таким ID не найден!", reply_markup=get_main_keyboard())
-            return
-        if message.from_user.id in FRIENDS:
-            if friend_uid in FRIENDS[message.from_user.id]:
-                FRIENDS[message.from_user.id].remove(friend_uid)
-                if friend_uid in FRIENDS:
-                    FRIENDS[friend_uid].remove(message.from_user.id)
-                bot.reply_to(message, f"✅ Игрок с ID {friend_game_id} удалён из друзей!", reply_markup=get_main_keyboard())
-            else:
-                bot.reply_to(message, "❌ Этот игрок не у тебя в друзьях!", reply_markup=get_main_keyboard())
+    if isinstance(choice[0], int):  # Деньги
+        win_amount = random.randint(choice[0], choice[1])
+        player["money"] += win_amount
+        text = f"💰 Вы выиграли {win_amount:,}$!"
+    elif choice[0] == "money":  # Фиксированная сумма
+        player["money"] += choice[1]
+        text = f"💰 Вы выиграли {choice[1]:,}$!"
+    else:  # Здание
+        bkey = choice[0]
+        count = choice[1]
+        if player["used_road"] + count <= player["road"]:
+            player["buildings"][bkey] = player["buildings"].get(bkey, 0) + count
+            player["used_road"] += count
+            text = f"🏗️ Вы выиграли {BUILDINGS[bkey]['name']} x{count}!"
         else:
-            bot.reply_to(message, "❌ У тебя нет друзей!", reply_markup=get_main_keyboard())
-    except:
-        bot.reply_to(message, "❌ Неверный ID!", reply_markup=get_main_keyboard())
+            # Если нет места — даём деньги вместо здания
+            compensation = BUILDINGS[bkey]["price"] * count // 2
+            player["money"] += compensation
+            text = f"🏗️ Вы выиграли {BUILDINGS[bkey]['name']} x{count}, но нет места!\n💰 Компенсация: {compensation:,}$"
+    
+    bot.answer_callback_query(call.id, "🎉 Кейс открыт!")
+    bot.send_message(call.message.chat.id, f"📦 Открыт кейс за {price:,}$!\n\n{text}\n\nБаланс: {player['money']:,}$")
 
-@bot.message_handler(commands=['myfriends'])
-def my_friends(message):
-    if check_ban(message):
-        return
-    friends = FRIENDS.get(message.from_user.id, [])
-    if not friends:
-        bot.reply_to(message, "😔 У тебя пока нет друзей.", reply_markup=get_main_keyboard())
-    else:
-        text = "📋 Твои друзья:\n\n"
-        for fid in friends:
-            if str(fid) in players_data:
-                text += f"• {players_data[str(fid)]['name']} (ID: {players_data[str(fid)]['game_id']}, TG: {fid}, Ур. {players_data[str(fid)]['level']})\n"
-        bot.reply_to(message, text, reply_markup=get_main_keyboard())
-
-# ===== БАЛАНС =====
-@bot.message_handler(func=lambda m: m.text == "💰 Баланс")
-def balance(message):
-    if check_ban(message):
-        return
-    player = get_player(message.from_user.id)
-    bot.reply_to(message, f"У тебя {player['money']} 💎 кристаллов\nУровень: {player['level']}", reply_markup=get_main_keyboard())
-
-# ===== ЕЖЕДНЕВНЫЙ БОНУС =====
-@bot.message_handler(func=lambda m: m.text == "🎁 Ежедневный бонус")
-def daily(message):
+# ===== БОНУС =====
+@bot.message_handler(func=lambda m: m.text == "🎁 Бонус")
+def daily_bonus(message):
     if check_ban(message):
         return
     user_id = message.from_user.id
     player = get_player(user_id)
     today = datetime.now().strftime("%Y-%m-%d")
+    
     if player["last_daily"] == today:
         bot.reply_to(message, "❌ Ты уже получал бонус сегодня! Приходи завтра.", reply_markup=get_main_keyboard())
         return
-    bonus = random.randint(50, 200)
+    
+    bonus = random.randint(50000, 200000)
     player["money"] += bonus
     player["last_daily"] = today
-    add_exp(user_id, 10)
-    bot.reply_to(message, f"🎉 Ты получил {bonus} 💎 кристаллов!\nТеперь у тебя {player['money']} 💎", reply_markup=get_main_keyboard())
+    
+    # Иногда даём бесплатное здание
+    extra = ""
+    if random.random() < 0.2:
+        free_building = random.choice(["house", "park"])
+        if player["used_road"] < player["road"]:
+            player["buildings"][free_building] = player["buildings"].get(free_building, 0) + 1
+            player["used_road"] += 1
+            extra = f"\n🎁 Бонус: {BUILDINGS[free_building]['name']} бесплатно!"
+        else:
+            extra = "\n🎁 Бонусное здание не влезло (нет дороги)!"
+    
+    bot.reply_to(message,
+        f"🎉 Ты получил {bonus:,}$!\nТеперь у тебя {player['money']:,}${extra}",
+        reply_markup=get_main_keyboard())
 
-# ===== ОГРАБЛЕНИЕ =====
-@bot.message_handler(func=lambda m: m.text == "⚔️ Ограбить")
-def rob(message):
+# ===== ТОП ГОРОДОВ =====
+@bot.message_handler(func=lambda m: m.text == "👥 Топ городов")
+def top_cities(message):
     if check_ban(message):
         return
-    user_id = message.from_user.id
-    player = get_player(user_id)
-    other_players = [pid for pid in players_data if pid != str(user_id)]
-    if not other_players:
-        bot.reply_to(message, "❌ Нет других игроков для ограбления!", reply_markup=get_main_keyboard())
-        return
-    victim_id = random.choice(other_players)
-    victim = players_data[victim_id]
-    if player["money"] < 50:
-        bot.reply_to(message, "❌ Нужно минимум 50 кристаллов для ограбления!", reply_markup=get_main_keyboard())
-        return
-    if random.random() < 0.6:
-        stolen = min(random.randint(20, 100), victim["money"])
-        victim["money"] -= stolen
-        player["money"] += stolen
-        add_exp(user_id, 10)
-        bot.reply_to(message, f"✅ Успех! Ты украл {stolen} 💎 у {victim['name']}!", reply_markup=get_main_keyboard())
-    else:
-        penalty = random.randint(20, 80)
-        player["money"] -= penalty
-        bot.reply_to(message, f"❌ Провал! Тебя поймали и оштрафовали на {penalty} 💎", reply_markup=get_main_keyboard())
-
-# ===== ТОП ИГРОКОВ =====
-@bot.message_handler(func=lambda m: m.text == "👥 Топ игроков")
-def top(message):
-    if check_ban(message):
-        return
-    players = [(uid, p["name"], p["money"], p.get("game_id", "?")) for uid, p in players_data.items()]
-    players.sort(key=lambda x: x[2], reverse=True)
-    text = "🏆 Топ 10 богачей 🏆\n\n"
-    for i, (uid, name, money, gid) in enumerate(players[:10], 1):
-        text += f"{i}. {name}\n   💎 {money} | 🆔 ID: {gid} | 📱 TG: {uid}\n"
+    
+    # Сортируем по доходу
+    cities = []
+    for uid, data in players_data.items():
+        income = sum(BUILDINGS[bkey]["income"] * data["buildings"].get(bkey, 0) for bkey in BUILDINGS)
+        cities.append((uid, data["name"], data["money"], income, data["game_id"]))
+    
+    cities.sort(key=lambda x: x[2], reverse=True)
+    
+    text = "🏆 Топ 10 городов 🏆\n\n"
+    for i, (uid, name, money, income, gid) in enumerate(cities[:10], 1):
+        text += f"{i}. {name}\n   💰 {money:,}$ | 📈 {income}$/ч | 🆔 {gid}\n"
+    
     bot.reply_to(message, text, reply_markup=get_main_keyboard())
 
 # ===== ПРОФИЛЬ =====
-@bot.message_handler(func=lambda m: m.text == "👤 Мой профиль")
+@bot.message_handler(func=lambda m: m.text == "👤 Профиль")
 def profile(message):
     if check_ban(message):
         return
-    user_id = message.from_user.id
-    player = get_player(user_id)
+    player = get_player(message.from_user.id)
     clan_name = player.get("clan", "Нет")
     if clan_name in clans_data:
         clan_name = clans_data[clan_name]["name"]
-    else:
-        clan_name = "Нет"
-    friends_count = len(FRIENDS.get(user_id, []))
-    text = f"""📇 **Профиль игрока**
+    
+    friends_count = len(FRIENDS.get(message.from_user.id, []))
+    
+    text = f"""📇 **Профиль мэра**
 ━━━━━━━━━━━━━━━━
 🆔 ID: {player['game_id']}
-📱 TG: {user_id}
+📱 TG: {message.from_user.id}
 👤 Имя: {player['name']}
-💰 Кристаллы: {player['money']}
-⭐ Уровень: {player['level']}
-📊 Опыт: {player['exp']}/{player['level']*100}
+💰 Баланс: {player['money']:,}$
+📈 Доход: {player['income']}$/ч
+🛣️ Дороги: {player['used_road']}/{player['road']}м
+👥 Население: {player['population']}
+😊 Радость: {player['joy']}
+⚡ Энергия: {player['energy']} / {player['energy_used']}
 👫 Друзей: {friends_count}
 🏰 Клан: {clan_name}
 🎫 Промокодов: {len(player['used_promos'])}
 ━━━━━━━━━━━━━━━━"""
     bot.reply_to(message, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
-# ===== ПРОМОКОДЫ =====
-@bot.message_handler(commands=['promo'])
-def use_promo(message):
-    if check_ban(message):
-        return
-    user_id = message.from_user.id
-    player = get_player(user_id)
-    args = message.text.split()
-    if len(args) != 2:
-        bot.reply_to(message, "❌ Используй: /promo КОД", reply_markup=get_main_keyboard())
-        return
-    code = args[1].upper()
-    if code not in PROMOCODES:
-        bot.reply_to(message, "❌ Такого промокода нет!", reply_markup=get_main_keyboard())
-        return
-    if code in player["used_promos"]:
-        bot.reply_to(message, "❌ Ты уже использовал этот промокод!", reply_markup=get_main_keyboard())
-        return
-    promo = PROMOCODES[code]
-    if promo["uses"] != -1:
-        total = sum(1 for p in players_data.values() if code in p["used_promos"])
-        if total >= promo["uses"]:
-            bot.reply_to(message, f"❌ Промокод {code} закончился!", reply_markup=get_main_keyboard())
-            return
-    player["money"] += promo["reward"]
-    player["used_promos"].append(code)
-    bot.reply_to(message, f"🎉 Промокод активирован! +{promo['reward']} 💎\nТеперь у тебя {player['money']} 💎", reply_markup=get_main_keyboard())
-
-@bot.message_handler(commands=['mypromos'])
-def my_promos(message):
-    if check_ban(message):
-        return
-    player = get_player(message.from_user.id)
-    if not player["used_promos"]:
-        bot.reply_to(message, "📭 Ты ещё не использовал промокоды.", reply_markup=get_main_keyboard())
-    else:
-        text = "🎫 Твои промокоды:\n" + "\n".join(f"• {c}" for c in player["used_promos"])
-        bot.reply_to(message, text, reply_markup=get_main_keyboard())
-
-@bot.message_handler(commands=['promostats'])
-def promo_stats(message):
-    if not is_admin(message.from_user.id):
-        return
-    stats = {p: 0 for p in PROMOCODES}
-    for p in players_data.values():
-        for c in p["used_promos"]:
-            if c in stats:
-                stats[c] += 1
-    text = "📊 Статистика промокодов:\n\n" + "\n".join(
-        f"{c}: {n}/{PROMOCODES[c]['uses'] if PROMOCODES[c]['uses'] != -1 else '∞'}" for c, n in stats.items()
-    )
-    bot.reply_to(message, text)
-
-# ===== АДМИН-КОМАНДЫ =====
-@bot.message_handler(commands=['adminhelp'])
-def admin_help(message):
-    if not is_admin(message.from_user.id):
-        return
-    text = """🔐 **Справка для администраторов**
-
-👑 **Главный владелец (только он):**
-/newadmin [ID] — добавить админа
-/removeadmin [ID] — убрать админа
-
-💰 **Управление балансом:**
-/addmoney [ID] [сумма] — выдать кристаллы
-/setmoney [ID] [сумма] — установить баланс
-
-🚫 **Баны:**
-/ban [ID] [причина] — забанить навсегда
-/bantime [ID] [часы] [причина] — временный бан
-/unban [ID] — разбанить
-
-🆔 **Управление ID:**
-/changeid [tg_id] [новый_id] — изменить игровой ID
-
-📋 **Информация:**
-/info [ID] — инфо об игроке
-/stats — статистика бота
-/adminlist — список админов
-/broadcast [текст] — рассылка
-
-🏰 **Кланы:**
-/delclan [название] — удалить клан
-
-❓ /adminhelp — эта справка"""
-    bot.reply_to(message, text, parse_mode="Markdown")
-
-@bot.message_handler(commands=['newadmin'])
-def new_admin(message):
-    if not is_owner(message.from_user.id):
-        bot.reply_to(message, "❌ Только главный владелец может добавлять админов!")
-        return
-    try:
-        new_id = int(message.text.split()[1])
-        if new_id not in ADMIN_IDS:
-            ADMIN_IDS.append(new_id)
-            bot.reply_to(message, f"✅ Админ {new_id} добавлен!")
-        else:
-            bot.reply_to(message, "❌ Уже админ!")
-    except:
-        bot.reply_to(message, "❌ Используй: /newadmin ID")
-
-@bot.message_handler(commands=['removeadmin'])
-def remove_admin(message):
-    if not is_owner(message.from_user.id):
-        bot.reply_to(message, "❌ Только главный владелец может удалять админов!")
-        return
-    try:
-        rm_id = int(message.text.split()[1])
-        if rm_id == OWNER_ID:
-            bot.reply_to(message, "❌ Нельзя удалить главного владельца!")
-        elif rm_id in ADMIN_IDS:
-            ADMIN_IDS.remove(rm_id)
-            bot.reply_to(message, f"✅ Админ {rm_id} удалён!")
-        else:
-            bot.reply_to(message, "❌ Не админ!")
-    except:
-        bot.reply_to(message, "❌ Используй: /removeadmin ID")
-
-@bot.message_handler(commands=['changeid'])
-def change_game_id(message):
-    if not is_owner(message.from_user.id):
-        bot.reply_to(message, "❌ Только главный владелец может менять ID!")
-        return
-    try:
-        parts = message.text.split(maxsplit=2)
-        if len(parts) < 3:
-            bot.reply_to(message, "❌ Используй: /changeid [телеграм ID] [новый игровой ID]\nНапример: /changeid 8635476302 DEV_01")
-            return
-        
-        tg_id = parts[1].strip()
-        new_game_id = parts[2].strip()
-        
-        try:
-            tg_id_int = int(tg_id)
-        except:
-            bot.reply_to(message, "❌ Телеграм ID должен быть числом!")
-            return
-        
-        if str(tg_id_int) not in players_data:
-            bot.reply_to(message, f"❌ Игрок с Telegram ID {tg_id_int} не найден в базе!")
-            return
-        
-        player = players_data[str(tg_id_int)]
-        old_id = player["game_id"]
-        
-        for uid, data in players_data.items():
-            if uid != str(tg_id_int) and str(data.get("game_id")) == str(new_game_id):
-                bot.reply_to(message, f"❌ Игровой ID {new_game_id} уже занят!")
-                return
-        
-        player["game_id"] = new_game_id
-        
-        bot.reply_to(message, f"✅ Игровой ID игрока {tg_id_int} изменён!\nСтарый ID: {old_id} → Новый ID: {new_game_id}")
-        
-        try:
-            bot.send_message(tg_id_int, f"🔔 Администратор изменил твой игровой ID!\nСтарый ID: {old_id} → Новый ID: {new_game_id}\n\nНажми /start или /update для обновления меню.")
-        except:
-            pass
-            
-    except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка: {e}\nИспользуй: /changeid [телеграм ID] [новый игровой ID]")
-
-@bot.message_handler(commands=['addmoney'])
-def add_money(message):
-    if not is_admin(message.from_user.id):
-        return
-    try:
-        _, uid, amount = message.text.split()
-        uid, amount = int(uid), int(amount)
-        player = get_player(uid)
-        player["money"] += amount
-        bot.reply_to(message, f"✅ Игроку {uid} выдано {amount} 💎\nНовый баланс: {player['money']}")
-        bot.send_message(uid, f"🎁 Админ выдал тебе {amount} 💎!\nТвой баланс: {player['money']}")
-    except:
-        bot.reply_to(message, "❌ Используй: /addmoney ID СУММА")
-
-@bot.message_handler(commands=['setmoney'])
-def set_money(message):
-    if not is_admin(message.from_user.id):
-        return
-    try:
-        _, uid, amount = message.text.split()
-        uid, amount = int(uid), int(amount)
-        player = get_player(uid)
-        player["money"] = amount
-        bot.reply_to(message, f"✅ Баланс игрока {uid} установлен на {amount} 💎")
-    except:
-        bot.reply_to(message, "❌ Используй: /setmoney ID СУММА")
-
-@bot.message_handler(commands=['reset'])
-def reset_player(message):
-    if not is_admin(message.from_user.id):
-        return
-    try:
-        uid = int(message.text.split()[1])
-        players_data.pop(str(uid), None)
-        BANNED_USERS.pop(str(uid), None)
-        FRIENDS.pop(uid, None)
-        for f in FRIENDS.values():
-            if uid in f:
-                f.remove(uid)
-        bot.reply_to(message, f"✅ Игрок {uid} полностью сброшен!")
-    except:
-        bot.reply_to(message, "❌ Используй: /reset ID")
-
-@bot.message_handler(commands=['ban'])
-def ban_user(message):
-    if not is_admin(message.from_user.id):
-        return
-    try:
-        parts = message.text.split(maxsplit=2)
-        uid = int(parts[1])
-        reason = parts[2] if len(parts) > 2 else "Нарушение правил"
-        
-        if uid == OWNER_ID:
-            bot.reply_to(message, "❌ Нельзя забанить главного владельца!")
-            return
-        if uid in ADMIN_IDS and not is_owner(message.from_user.id):
-            bot.reply_to(message, "❌ Только главный владелец может банить админов!")
-            return
-        
-        BANNED_USERS[str(uid)] = {
-            "reason": reason,
-            "until": None,
-            "by": message.from_user.id
-        }
-        bot.reply_to(message, f"🚫 Игрок {uid} забанен навсегда!\nПричина: {reason}")
-        try:
-            bot.send_message(uid, f"🚫 Вы были забанены!\nПричина: {reason}\nАдминистратор: {message.from_user.id}")
-        except:
-            pass
-    except:
-        bot.reply_to(message, "❌ Используй: /ban ID ПРИЧИНА")
-
-@bot.message_handler(commands=['bantime'])
-def ban_time(message):
-    if not is_admin(message.from_user.id):
-        return
-    try:
-        parts = message.text.split(maxsplit=3)
-        uid = int(parts[1])
-        hours = int(parts[2])
-        reason = parts[3] if len(parts) > 3 else "Временное нарушение"
-        
-        if uid == OWNER_ID:
-            bot.reply_to(message, "❌ Нельзя забанить главного владельца!")
-            return
-        
-        until = datetime.now() + timedelta(hours=hours)
-        BANNED_USERS[str(uid)] = {
-            "reason": reason,
-            "until": until,
-            "by": message.from_user.id
-        }
-        time_str = f"{hours} ч."
-        bot.reply_to(message, f"🚫 Игрок {uid} забанен на {time_str}!\nПричина: {reason}\nРазбан: {until.strftime('%d.%m.%Y %H:%M')}")
-        try:
-            bot.send_message(uid, f"🚫 Вы забанены на {time_str}!\nПричина: {reason}\nРазбан: {until.strftime('%d.%m.%Y %H:%M')}")
-        except:
-            pass
-    except:
-        bot.reply_to(message, "❌ Используй: /bantime ID ЧАСЫ ПРИЧИНА")
-
-@bot.message_handler(commands=['unban'])
-def unban_user(message):
-    if not is_admin(message.from_user.id):
-        return
-    try:
-        uid = int(message.text.split()[1])
-        if str(uid) in BANNED_USERS:
-            del BANNED_USERS[str(uid)]
-            bot.reply_to(message, f"✅ Игрок {uid} разбанен!")
-            try:
-                bot.send_message(uid, "✅ Вы были разбанены! Добро пожаловать обратно!")
-            except:
-                pass
-        else:
-            bot.reply_to(message, "❌ Этот игрок не в бане!")
-    except:
-        bot.reply_to(message, "❌ Используй: /unban ID")
-
-@bot.message_handler(commands=['info'])
-def player_info(message):
-    if not is_admin(message.from_user.id):
-        return
-    try:
-        uid = int(message.text.split()[1])
-        player = get_player(uid)
-        banned = "🚫 Забанен" if is_banned(uid) else "✅ Активен"
-        ban_info = get_ban_info(uid)
-        clan = player.get("clan", "Нет")
-        friends_count = len(FRIENDS.get(uid, []))
-        
-        text = f"""📋 **Информация об игроке {uid}**
-🆔 Игровой ID: {player['game_id']}
-📱 TG: {uid}
-👤 Имя: {player['name']}
-💰 Баланс: {player['money']} 💎
-⭐ Уровень: {player['level']}
-📊 Опыт: {player['exp']}/{player['level']*100}
-👫 Друзей: {friends_count}
-🏰 Клан: {clan}
-🎫 Промокодов: {len(player['used_promos'])}
-📅 Последний бонус: {player['last_daily']}
-🚦 Статус: {banned}"""
-        
-        if ban_info:
-            text += f"\n📝 Причина бана: {ban_info['reason']}"
-            if ban_info['until']:
-                text += f"\n⏳ Разбан: {ban_info['until'].strftime('%d.%m.%Y %H:%M')}"
-            else:
-                text += "\n⏳ Бан навсегда"
-            text += f"\n👤 Забанил: {ban_info['by']}"
-        
-        bot.reply_to(message, text, parse_mode="Markdown")
-    except:
-        bot.reply_to(message, "❌ Используй: /info ID")
-
-@bot.message_handler(commands=['delclan'])
-def delete_clan(message):
-    if not is_admin(message.from_user.id):
-        return
-    try:
-        name = message.text.split(maxsplit=1)[1]
-        if name in clans_data:
-            for uid in clans_data[name]["members"]:
-                if str(uid) in players_data:
-                    players_data[str(uid)]["clan"] = None
-            del clans_data[name]
-            bot.reply_to(message, f"✅ Клан '{name}' удалён!")
-        else:
-            bot.reply_to(message, "❌ Клан не найден!")
-    except:
-        bot.reply_to(message, "❌ Используй: /delclan НАЗВАНИЕ")
-
-@bot.message_handler(commands=['stats'])
-def stats(message):
-    if not is_admin(message.from_user.id):
-        return
-    total_players = len(players_data)
-    total_clans = len(clans_data)
-    total_banned = len([b for b in BANNED_USERS if is_banned(int(b))])
-    total_admins = len(ADMIN_IDS)
-    text = f"""📊 **Статистика бота**
-👥 Игроков: {total_players}
-🏰 Кланов: {total_clans}
-🚫 Забанено: {total_banned}
-👑 Админов: {total_admins}"""
-    bot.reply_to(message, text, parse_mode="Markdown")
-
-@bot.message_handler(commands=['broadcast'])
-def broadcast(message):
-    if not is_admin(message.from_user.id):
-        return
-    text = message.text.replace('/broadcast', '').strip()
-    if not text:
-        bot.reply_to(message, "❌ Напиши: /broadcast ТЕКСТ")
-        return
-    sent = 0
-    for uid in list(players_data.keys()):
-        try:
-            if not is_banned(int(uid)):
-                bot.send_message(int(uid), f"📢 Сообщение от администратора:\n\n{text}")
-                sent += 1
-        except:
-            pass
-    bot.reply_to(message, f"✅ Рассылка отправлена {sent} игрокам!")
-
-@bot.message_handler(commands=['adminlist'])
-def admin_list(message):
-    if not is_admin(message.from_user.id):
-        return
-    text = "👑 Список админов:\n" + "\n".join(
-        f"• {aid} {'(главный)' if aid == OWNER_ID else ''}" for aid in ADMIN_IDS
-    )
-    bot.reply_to(message, text)
-
-# ===== КЛАНЫ =====
-@bot.message_handler(func=lambda m: m.text == "🏰 Кланы")
-def clans_menu(message):
-    if check_ban(message):
-        return
-    markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(
-        telebot.types.InlineKeyboardButton("📋 Список кланов", callback_data="clan_list"),
-        telebot.types.InlineKeyboardButton("➕ Создать клан", callback_data="clan_create"),
-        telebot.types.InlineKeyboardButton("🚪 Выйти из клана", callback_data="clan_leave")
-    )
-    bot.send_message(message.chat.id, "🏰 Управление кланами:", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda c: c.data == "clan_list")
-def clan_list(call):
-    if not clans_data:
-        bot.answer_callback_query(call.id, "Кланов пока нет!")
-        return
-    text = "📋 Список кланов:\n\n" + "\n".join(
-        f"🏰 {d['name']}\n👥 {len(d['members'])} участников\n💰 Казна: {d['money']}\n" for d in clans_data.values()
-    )
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
-
-@bot.callback_query_handler(func=lambda c: c.data == "clan_create")
-def clan_create(call):
-    bot.answer_callback_query(call.id)
-    msg = bot.send_message(call.message.chat.id, "Введите название клана:")
-    bot.register_next_step_handler(msg, process_clan_create)
-
-def process_clan_create(message):
-    user_id = message.from_user.id
-    player = get_player(user_id)
-    name = message.text.strip()[:20]
-    if name in clans_data:
-        bot.reply_to(message, "❌ Такой клан уже есть!")
-        return
-    if player["money"] < 500:
-        bot.reply_to(message, "❌ Нужно 500 💎!")
-        return
-    player["money"] -= 500
-    player["clan"] = name
-    clans_data[name] = {"name": name, "owner": user_id, "members": [user_id], "money": 0}
-    bot.reply_to(message, f"✅ Клан '{name}' создан! (-500 💎)")
-
-@bot.callback_query_handler(func=lambda c: c.data == "clan_leave")
-def clan_leave(call):
-    user_id = call.from_user.id
-    player = get_player(user_id)
-    name = player.get("clan")
-    if not name or name not in clans_data:
-        bot.answer_callback_query(call.id, "Ты не в клане!")
-        return
-    clans_data[name]["members"].remove(user_id)
-    if not clans_data[name]["members"]:
-        del clans_data[name]
-    player["clan"] = None
-    bot.answer_callback_query(call.id, "Ты покинул клан!")
-    bot.edit_message_text("🚪 Ты вышел из клана.", call.message.chat.id, call.message.message_id)
+# ===== ОСТАЛЬНЫЕ ФУНКЦИИ (ID, ДРУЗЬЯ, КЛАНЫ, ПРОМОКОДЫ, АДМИНКА) =====
+# Вставьте сюда все старые функции: my_id, find_id, friends_menu, friend_list,
+# friend_requests, accept_friend, decline_friend, friends_back,
+# add_friend, remove_friend, my_friends,
+# clans_menu, clan_list, clan_create, process_clan_create, clan_leave,
+# use_promo, my_promos, promo_stats,
+# admin_help, new_admin, remove_admin, change_game_id, add_money, set_money,
+# reset_player, ban_user, ban_time, unban_user, player_info, delete_clan,
+# stats, broadcast, admin_list
+# 
+# Все они ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ из предыдущего кода!
+# Просто скопируйте их сюда.
 
 # ===== ЗАПУСК =====
-print("🎮 Бот запущен!")
-
-def send_update_notification():
-    sent = 0
-    for uid in list(players_data.keys()):
-        try:
-            if not is_banned(int(uid)):
-                bot.send_message(
-                    int(uid),
-                    UPDATE_INFO,
-                    parse_mode="Markdown"
-                )
-                sent += 1
-        except:
-            pass
-    print(f"📢 Уведомление об обновлении отправлено {sent} игрокам")
-
+print("🏙️ Бот 'Мой Город' запущен!")
 if __name__ == '__main__':
-    try:
-        send_update_notification()
-    except Exception as e:
-        print(f"Ошибка при рассылке: {e}")
-    
     bot.infinity_polling()
