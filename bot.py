@@ -7,7 +7,7 @@ TOKEN = "8906578550:AAGV7toADTAkBOw6aufuhV_PQbbnmzEuxrQ"
 OWNER_ID = 8558737152
 ADMIN_IDS = [8558737152]
 START_MONEY = 100
-NEXT_ID = 1000000  # Счётчик для выдачи ID
+NEXT_ID = 1000000
 
 # ===== ПРОМОКОДЫ =====
 PROMOCODES = {
@@ -22,8 +22,8 @@ bot = telebot.TeleBot(TOKEN)
 players_data = {}
 clans_data = {}
 BANNED_USERS = {}
-FRIENDS = {}  # {user_id: [friend_id1, friend_id2, ...]}
-FRIEND_REQUESTS = {}  # {to_id: [from_id1, from_id2, ...]}
+FRIENDS = {}
+FRIEND_REQUESTS = {}
 
 # ===== ФУНКЦИИ =====
 def is_admin(user_id):
@@ -158,6 +158,7 @@ def help_command(message):
 • /addfriend ID — добавить друга
 • /removefriend ID — удалить друга
 • /myfriends — список друзей
+• /id ID — найти игрока по ID
 
 🏰 **Кланы:**
 • Создать клан — 500 💎
@@ -173,7 +174,7 @@ def my_id(message):
     if check_ban(message):
         return
     player = get_player(message.from_user.id)
-    bot.reply_to(message, f"🆔 Твой игровой ID: **{player['game_id']}**\nИспользуй его, чтобы добавлять друзей!", parse_mode="Markdown")
+    bot.reply_to(message, f"🆔 Твой игровой ID: **{player['game_id']}**\n📱 Твой Telegram ID: **{message.from_user.id}**\nИспользуй игровой ID для добавления в друзья!", parse_mode="Markdown")
 
 @bot.message_handler(commands=['id'])
 def find_id(message):
@@ -191,7 +192,7 @@ def find_id(message):
                 found = uid
                 break
         if found:
-            bot.reply_to(message, f"🔍 Игрок с ID {search_id}: {players_data[found]['name']}")
+            bot.reply_to(message, f"🔍 Игрок с ID {search_id}: {players_data[found]['name']} (TG: {found})")
         else:
             bot.reply_to(message, "❌ Игрок с таким ID не найден!")
     except:
@@ -219,7 +220,7 @@ def friend_list(call):
         text = "📋 Твои друзья:\n\n"
         for fid in friends:
             if str(fid) in players_data:
-                text += f"• {players_data[str(fid)]['name']} (ID: {players_data[str(fid)]['game_id']})\n"
+                text += f"• {players_data[str(fid)]['name']} (ID: {players_data[str(fid)]['game_id']}, TG: {fid})\n"
     bot.answer_callback_query(call.id)
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
     markup = telebot.types.InlineKeyboardMarkup()
@@ -242,7 +243,7 @@ def friend_requests(call):
         markup = telebot.types.InlineKeyboardMarkup()
         for rid in requests:
             if str(rid) in players_data:
-                text += f"• {players_data[str(rid)]['name']} (ID: {players_data[str(rid)]['game_id']})\n"
+                text += f"• {players_data[str(rid)]['name']} (ID: {players_data[str(rid)]['game_id']}, TG: {rid})\n"
                 markup.add(
                     telebot.types.InlineKeyboardButton(f"✅ Принять {players_data[str(rid)]['name']}", callback_data=f"accept_{rid}"),
                     telebot.types.InlineKeyboardButton(f"❌ Отклонить {players_data[str(rid)]['name']}", callback_data=f"decline_{rid}")
@@ -322,7 +323,7 @@ def add_friend(message):
         FRIEND_REQUESTS[friend_uid].append(message.from_user.id)
         
         bot.reply_to(message, f"✅ Заявка в друзья отправлена игроку с ID {friend_game_id}!")
-        bot.send_message(friend_uid, f"📨 Новый запрос в друзья от {players_data[str(message.from_user.id)]['name']} (ID: {players_data[str(message.from_user.id)]['game_id']})!\nПроверь раздел 👫 Друзья!")
+        bot.send_message(friend_uid, f"📨 Новый запрос в друзья от {players_data[str(message.from_user.id)]['name']} (ID: {players_data[str(message.from_user.id)]['game_id']}, TG: {message.from_user.id})!\nПроверь раздел 👫 Друзья!")
     except:
         bot.reply_to(message, "❌ Неверный ID!")
 
@@ -369,7 +370,7 @@ def my_friends(message):
         text = "📋 Твои друзья:\n\n"
         for fid in friends:
             if str(fid) in players_data:
-                text += f"• {players_data[str(fid)]['name']} (ID: {players_data[str(fid)]['game_id']}, Ур. {players_data[str(fid)]['level']})\n"
+                text += f"• {players_data[str(fid)]['name']} (ID: {players_data[str(fid)]['game_id']}, TG: {fid}, Ур. {players_data[str(fid)]['level']})\n"
         bot.reply_to(message, text)
 
 # ===== БАЛАНС =====
@@ -429,11 +430,11 @@ def rob(message):
 def top(message):
     if check_ban(message):
         return
-    players = [(p["name"], p["money"], p.get("game_id", "?")) for p in players_data.values()]
-    players.sort(key=lambda x: x[1], reverse=True)
+    players = [(uid, p["name"], p["money"], p.get("game_id", "?")) for uid, p in players_data.items()]
+    players.sort(key=lambda x: x[2], reverse=True)
     text = "🏆 Топ 10 богачей 🏆\n\n"
-    for i, (name, money, gid) in enumerate(players[:10], 1):
-        text += f"{i}. {name} (ID: {gid}) — {money} 💎\n"
+    for i, (uid, name, money, gid) in enumerate(players[:10], 1):
+        text += f"{i}. {name}\n   💎 {money} | 🆔 ID: {gid} | 📱 TG: {uid}\n"
     bot.reply_to(message, text)
 
 # ===== ПРОФИЛЬ =====
@@ -452,6 +453,7 @@ def profile(message):
     text = f"""📇 **Профиль игрока**
 ━━━━━━━━━━━━━━━━
 🆔 ID: {player['game_id']}
+📱 TG: {user_id}
 👤 Имя: {player['name']}
 💰 Кристаллы: {player['money']}
 ⭐ Уровень: {player['level']}
@@ -535,6 +537,9 @@ def admin_help(message):
 /bantime [ID] [часы] [причина] — временный бан
 /unban [ID] — разбанить
 
+🆔 **Управление ID:**
+/changeid [tg_id] [новый_id] — изменить игровой ID
+
 📋 **Информация:**
 /info [ID] — инфо об игроке
 /stats — статистика бота
@@ -578,6 +583,33 @@ def remove_admin(message):
             bot.reply_to(message, "❌ Не админ!")
     except:
         bot.reply_to(message, "❌ Используй: /removeadmin ID")
+
+@bot.message_handler(commands=['changeid'])
+def change_game_id(message):
+    if not is_owner(message.from_user.id):
+        bot.reply_to(message, "❌ Только главный владелец может менять ID!")
+        return
+    try:
+        parts = message.text.split()
+        if len(parts) != 3:
+            bot.reply_to(message, "❌ Используй: /changeid [телеграм ID игрока] [новый игровой ID]")
+            return
+        tg_id = int(parts[1])
+        new_game_id = int(parts[2])
+        
+        player = get_player(tg_id)
+        old_id = player["game_id"]
+        
+        for uid, data in players_data.items():
+            if uid != str(tg_id) and data.get("game_id") == new_game_id:
+                bot.reply_to(message, f"❌ Игровой ID {new_game_id} уже занят!")
+                return
+        
+        player["game_id"] = new_game_id
+        bot.reply_to(message, f"✅ Игровой ID игрока {tg_id} изменён!\nСтарый ID: {old_id} → Новый ID: {new_game_id}")
+        bot.send_message(tg_id, f"🔔 Администратор изменил твой игровой ID!\nСтарый ID: {old_id} → Новый ID: {new_game_id}")
+    except:
+        bot.reply_to(message, "❌ Используй: /changeid [телеграм ID игрока] [новый игровой ID]")
 
 @bot.message_handler(commands=['addmoney'])
 def add_money(message):
@@ -712,6 +744,7 @@ def player_info(message):
         
         text = f"""📋 **Информация об игроке {uid}**
 🆔 Игровой ID: {player['game_id']}
+📱 TG: {uid}
 👤 Имя: {player['name']}
 💰 Баланс: {player['money']} 💎
 ⭐ Уровень: {player['level']}
