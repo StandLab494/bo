@@ -1,511 +1,512 @@
 import telebot
 from datetime import datetime, timedelta
-import re
 
 # ===== НАСТРОЙКИ =====
-TOKEN = "8939220569:AAHLTwkf9rD7Gf22EK9CBqtgg2Q19v1LomI"
-OWNER_ID = 8558737152  # Главный админ (имеет доступ ко всему)
+TOKEN = "8804412117:AAFClU1wzf_qQWymrcmEQ3_pVBCNdxOP1pM"
+OWNER_ID = 8558737152
 
 bot = telebot.TeleBot(TOKEN)
 
-# ===== БАЗЫ ДАННЫХ (в памяти, можно заменить на JSON) =====
-# Настройки чатов: {chat_id: {rules: "...", welcome: "...", admins: [id1, id2]}}
-chats_data = {}
+# ===== БАЗЫ ДАННЫХ =====
+staff_data = {}        # {chat_id: {user_id: rank}}
+warns_data = {}        # {user_id: {chat_id: [warns]}}
+mutes_data = {}        # {user_id: {chat_id: datetime}}
+bans_data = {}         # {user_id: {chat_id: True}}
+chats_data = {}        # {chat_id: {rules, welcome, welcome_enabled}}
+message_history = {}   # {user_id: [messages]}
+MAX_WARNS = 3
 
-# Варны: {user_id: {chat_id: [list of warnings]}}
-warns_data = {}
-
-# Муты: {user_id: {chat_id: datetime_until}}
-mutes_data = {}
-
-# Баны: {user_id: {chat_id: True/False}}
-bans_data = {}
-
-# ===== ФУНКЦИИ =====
-def is_chat_admin(chat_id, user_id):
-    """Проверяет, является ли пользователь админом в чате"""
+# ===== ФУНКЦИИ РАНГОВ =====
+def get_rank(chat_id, user_id):
+    if user_id == OWNER_ID:
+        return 4
     try:
         member = bot.get_chat_member(chat_id, user_id)
-        return member.status in ['creator', 'administrator']
+        if member.status == 'creator':
+            return 4
     except:
-        return False
+        pass
+    return staff_data.get(chat_id, {}).get(user_id, 0)
 
-def is_global_admin(user_id):
-    """Проверяет, является ли пользователь глобальным админом (владельцем)"""
-    return user_id == OWNER_ID
+def set_rank(chat_id, user_id, rank):
+    if chat_id not in staff_data:
+        staff_data[chat_id] = {}
+    if rank == 0:
+        staff_data[chat_id].pop(user_id, None)
+    else:
+        staff_data[chat_id][user_id] = rank
 
-def can_moderate(chat_id, user_id):
-    """Может ли пользователь выполнять модераторские действия"""
-    return is_global_admin(user_id) or is_chat_admin(chat_id, user_id)
+def has_rank(chat_id, user_id, min_rank):
+    return get_rank(chat_id, user_id) >= min_rank
+
+def is_owner_or_creator(chat_id, user_id):
+    return get_rank(chat_id, user_id) >= 4
 
 def get_chat_data(chat_id):
-    """Получает или создаёт данные чата"""
     if chat_id not in chats_data:
         chats_data[chat_id] = {
             "rules": "Правила чата ещё не установлены.",
             "welcome": "👋 Добро пожаловать в чат, {name}!",
-            "welcome_enabled": True,
-            "admins": []
+            "welcome_enabled": True
         }
     return chats_data[chat_id]
 
-# ===== ОСНОВНЫЕ КОМАНДЫ (для всех) =====
+# ===== КОМАНДЫ ДЛЯ ВСЕХ =====
 @bot.message_handler(commands=['start'])
 def start(message):
     if message.chat.type == 'private':
         bot.reply_to(message,
-            f"🤖 **CityGuard — Чат-менеджер**\n\n"
-            f"Добавь меня в группу и выдай права админа!\n\n"
-            f"📜 /help — список команд\n"
-            f"📊 /info — информация о пользователе\n"
-            f"🆔 /id — узнать свой ID\n",
+            "🤖 **CityGuard — Чат-менеджер**\n\n"
+            "Добавь меня в группу и выдай права админа!\n\n"
+            "📜 /help — список команд\n"
+            "📊 /info — информация\n"
+            "🆔 /id — узнать ID",
             parse_mode="Markdown")
 
 @bot.message_handler(commands=['help'])
-def help_command(message):
-    text = """🤖 **Команды CityGuard:**
+def help_cmd(message):
+    text = """🤖 **CityGuard — Команды**
 
 👤 **Для всех:**
-/id — узнать свой ID
+/id — свой ID
 /info — информация о пользователе
-/report [причина] — пожаловаться на сообщение (реплай)
+/report — пожаловаться (реплай)
 /rules — правила чата
+/staff — список персонала
 
-🛡️ **Для админов чата:**
-/warn [причина] — предупреждение (реплай)
-/mute [минуты] — замутить (реплай)
-/unmute — размутить (реплай)
-/ban [причина] — забанить (реплай)
-/kick — кикнуть (реплай)
-/unban — разбанить (по ID)
+🛡️ **Модерация (по рангам):**
+Ранг 1+: /mute, /mutetime, /warn
+Ранг 2+: + /bantime
+Ранг 3+: + /ban
+Ранг 4: + /raising, /downgrade, /gg, /setrules, /setwelcome
 
-⚙️ **Настройки чата (админы):**
-/setrules [текст] — установить правила
-/setwelcome [текст] — установить приветствие
-/welcome_on — включить приветствие
-/welcome_off — выключить приветствие
-/admins — список админов чата
-
-👑 **Глобальный админ:**
-/gban — глобальный бан
-/gunban — глобальный разбан
-/broadcast [текст] — рассылка по чатам"""
-    
+⚠️ **Варны:** 3 предупреждения = авто-наказание"""
     bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['id'])
-def get_id(message):
+def id_cmd(message):
     if message.reply_to_message:
-        user = message.reply_to_message.from_user
-        bot.reply_to(message, f"🆔 ID пользователя {user.first_name}: `{user.id}`", parse_mode="Markdown")
+        u = message.reply_to_message.from_user
+        bot.reply_to(message, f"🆔 {u.first_name}: `{u.id}`", parse_mode="Markdown")
     else:
-        bot.reply_to(message, f"🆔 Твой ID: `{message.from_user.id}`\nЧат ID: `{message.chat.id}`", parse_mode="Markdown")
+        bot.reply_to(message, f"🆔 Твой ID: `{message.from_user.id}`\nЧат: `{message.chat.id}`", parse_mode="Markdown")
 
 @bot.message_handler(commands=['info'])
-def info_command(message):
-    if message.reply_to_message:
-        user = message.reply_to_message.from_user
-    else:
-        user = message.from_user
-    
-    chat_id = message.chat.id
-    user_id = user.id
-    
-    # Проверяем статус
+def info_cmd(message):
+    u = message.reply_to_message.from_user if message.reply_to_message else message.from_user
+    cid = message.chat.id
+    uid = u.id
     try:
-        member = bot.get_chat_member(chat_id, user_id)
+        member = bot.get_chat_member(cid, uid)
         status = member.status
     except:
         status = "неизвестно"
-    
-    # Проверяем варны
-    warns = warns_data.get(user_id, {}).get(chat_id, [])
-    
-    # Проверяем мут
-    mute_info = mutes_data.get(user_id, {}).get(chat_id)
-    muted = "Да (до {})".format(mute_info.strftime("%H:%M")) if mute_info else "Нет"
-    
-    # Проверяем бан
-    banned = bans_data.get(user_id, {}).get(chat_id, False)
-    
-    text = f"""📊 **Информация о пользователе**
-
-👤 Имя: {user.first_name}
-🆔 ID: `{user.id}`
+    warns = warns_data.get(uid, {}).get(cid, [])
+    mute_info = mutes_data.get(uid, {}).get(cid)
+    muted = f"Да (до {mute_info.strftime('%H:%M')})" if mute_info else "Нет"
+    banned = bans_data.get(uid, {}).get(cid, False)
+    rank = get_rank(cid, uid)
+    rank_names = {0: "Участник", 1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца", 4: "Владелец"}
+    text = f"""📊 **Информация**
+👤 {u.first_name}
+🆔 `{uid}`
 👑 Статус: {status}
+🎖 Ранг: {rank_names[rank]} ({rank})
 ⚠️ Варны: {len(warns)}/3
-🔇 Замучен: {muted}
-🚫 Забанен: {'Да' if banned else 'Нет'}
-"""
+🔇 Мут: {muted}
+🚫 Бан: {'Да' if banned else 'Нет'}"""
     bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['rules'])
-def rules_command(message):
-    chat_data = get_chat_data(message.chat.id)
-    bot.reply_to(message, f"📜 **Правила чата:**\n\n{chat_data['rules']}", parse_mode="Markdown")
+def rules_cmd(message):
+    cd = get_chat_data(message.chat.id)
+    bot.reply_to(message, f"📜 **Правила:**\n\n{cd['rules']}", parse_mode="Markdown")
 
 @bot.message_handler(commands=['report'])
-def report_command(message):
+def report_cmd(message):
     if not message.reply_to_message:
-        bot.reply_to(message, "❌ Ответьте на сообщение, чтобы пожаловаться!")
+        bot.reply_to(message, "❌ Ответьте на сообщение!")
         return
-    
     args = message.text.split(maxsplit=1)
     reason = args[1] if len(args) > 1 else "Не указана"
-    
-    reported_user = message.reply_to_message.from_user
-    
-    # Уведомляем админов чата
-    admins = bot.get_chat_administrators(message.chat.id)
-    for admin in admins:
+    reported = message.reply_to_message.from_user
+    for adm in bot.get_chat_administrators(message.chat.id):
         try:
-            bot.send_message(admin.user.id,
-                f"🚨 **Репорт в чате {message.chat.id}**\n"
-                f"От: {message.from_user.first_name}\n"
-                f"На: {reported_user.first_name}\n"
-                f"Причина: {reason}",
-                parse_mode="Markdown")
+            bot.send_message(adm.user.id, f"🚨 Репорт от {message.from_user.first_name}\nНа: {reported.first_name}\nПричина: {reason}")
         except:
             pass
-    
-    bot.reply_to(message, "✅ Жалоба отправлена администраторам!")
+    bot.reply_to(message, "✅ Жалоба отправлена!")
+
+@bot.message_handler(commands=['staff'])
+def staff_list(message):
+    cid = message.chat.id
+    staff = staff_data.get(cid, {})
+    if not staff:
+        bot.reply_to(message, "📭 Нет персонала.")
+        return
+    rn = {1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца"}
+    text = "🛡️ **Персонал:**\n\n"
+    for uid, rank in sorted(staff.items(), key=lambda x: x[1], reverse=True):
+        try:
+            u = bot.get_chat_member(cid, uid).user
+            text += f"• {u.first_name} — {rn[rank]} (ранг {rank})\n"
+        except:
+            text += f"• ID:{uid} — {rn[rank]}\n"
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+# ===== ПОВЫШЕНИЕ/ПОНИЖЕНИЕ =====
+@bot.message_handler(commands=['raising'])
+def raising_cmd(message):
+    if not is_owner_or_creator(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ Только владелец!")
+        return
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение!")
+        return
+    u = message.reply_to_message.from_user
+    cid = message.chat.id
+    cr = get_rank(cid, u.id)
+    if cr >= 3:
+        bot.reply_to(message, f"❌ {u.first_name} уже макс. ранг!")
+        return
+    nr = cr + 1
+    set_rank(cid, u.id, nr)
+    rn = {1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца"}
+    bot.reply_to(message, f"⬆️ {u.first_name} → ранг {nr} ({rn[nr]})")
+
+@bot.message_handler(commands=['downgrade'])
+def downgrade_cmd(message):
+    if not is_owner_or_creator(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ Только владелец!")
+        return
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение!")
+        return
+    u = message.reply_to_message.from_user
+    cid = message.chat.id
+    cr = get_rank(cid, u.id)
+    if cr <= 1:
+        bot.reply_to(message, f"❌ Нельзя понизить (ранг {cr}). Используйте /gg")
+        return
+    nr = cr - 1
+    set_rank(cid, u.id, nr)
+    rn = {1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца"}
+    bot.reply_to(message, f"⬇️ {u.first_name} → ранг {nr} ({rn.get(nr, 'Участник')})")
+
+@bot.message_handler(commands=['gg'])
+def gg_cmd(message):
+    if not is_owner_or_creator(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ Только владелец!")
+        return
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение!")
+        return
+    u = message.reply_to_message.from_user
+    cid = message.chat.id
+    if get_rank(cid, u.id) == 0:
+        bot.reply_to(message, f"❌ {u.first_name} и так без ранга!")
+        return
+    set_rank(cid, u.id, 0)
+    bot.reply_to(message, f"💀 {u.first_name} лишён ранга!")
 
 # ===== МОДЕРАЦИЯ =====
 @bot.message_handler(commands=['warn'])
-def warn_command(message):
-    if message.chat.type == 'private':
-        bot.reply_to(message, "❌ Эта команда работает только в группах!")
+def warn_cmd(message):
+    if not has_rank(message.chat.id, message.from_user.id, 1):
+        bot.reply_to(message, "❌ Нет прав!")
         return
-    
-    if not can_moderate(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ У вас нет прав!")
-        return
-    
     if not message.reply_to_message:
-        bot.reply_to(message, "❌ Ответьте на сообщение пользователя!")
+        bot.reply_to(message, "❌ Ответьте на сообщение!")
         return
-    
-    user = message.reply_to_message.from_user
-    chat_id = message.chat.id
-    
+    u = message.reply_to_message.from_user
+    cid = message.chat.id
     args = message.text.split(maxsplit=1)
-    reason = args[1] if len(args) > 1 else "Нарушение правил"
+    reason = args[1] if len(args) > 1 else "Нарушение"
     
-    if user.id not in warns_data:
-        warns_data[user.id] = {}
-    if chat_id not in warns_data[user.id]:
-        warns_data[user.id][chat_id] = []
+    if u.id not in warns_data:
+        warns_data[u.id] = {}
+    if cid not in warns_data[u.id]:
+        warns_data[u.id][cid] = []
     
-    warns_data[user.id][chat_id].append({
+    warns_data[u.id][cid].append({
         "reason": reason,
         "time": datetime.now().isoformat(),
         "by": message.from_user.id
     })
     
-    warn_count = len(warns_data[user.id][chat_id])
-    
-    if warn_count >= 3:
-        # Авто-бан
-        try:
-            bot.ban_chat_member(chat_id, user.id)
-            bans_data[user.id] = bans_data.get(user.id, {})
-            bans_data[user.id][chat_id] = True
-            bot.reply_to(message, f"🚫 {user.first_name} получил 3 предупреждения и был забанен!")
-        except:
-            bot.reply_to(message, f"⚠️ {user.first_name} получил {warn_count}/3 предупреждений. Нужен бан, но не хватает прав!")
+    wc = len(warns_data[u.id][cid])
+    if wc >= MAX_WARNS:
+        cr = get_rank(cid, u.id)
+        if cr > 0:
+            set_rank(cid, u.id, cr - 1)
+            warns_data[u.id][cid] = []
+            rn = {0: "Участник", 1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца"}
+            bot.reply_to(message, f"🚨 {u.first_name} 3/3!\n⬇️ Ранг → {cr-1} ({rn[cr-1]})")
+        else:
+            try:
+                bot.restrict_chat_member(cid, u.id, until_date=datetime.now() + timedelta(hours=1))
+                warns_data[u.id][cid] = []
+                bot.reply_to(message, f"🚨 {u.first_name} 3/3!\n🔇 Мут 1 час (нет ранга)")
+            except:
+                bot.reply_to(message, f"⚠️ 3/3! Нужен мут, но нет прав!")
     else:
-        bot.reply_to(message, f"⚠️ {user.first_name} получил предупреждение ({warn_count}/3)\nПричина: {reason}")
+        bot.reply_to(message, f"⚠️ {u.first_name} — {wc}/{MAX_WARNS}\nПричина: {reason}")
 
 @bot.message_handler(commands=['mute'])
-def mute_command(message):
-    if message.chat.type == 'private':
-        bot.reply_to(message, "❌ Эта команда работает только в группах!")
+def mute_cmd(message):
+    if not has_rank(message.chat.id, message.from_user.id, 1):
+        bot.reply_to(message, "❌ Нет прав!")
         return
-    
-    if not can_moderate(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ У вас нет прав!")
-        return
-    
     if not message.reply_to_message:
-        bot.reply_to(message, "❌ Ответьте на сообщение пользователя!")
+        bot.reply_to(message, "❌ Ответьте на сообщение!")
         return
-    
-    user = message.reply_to_message.from_user
-    chat_id = message.chat.id
-    
-    args = message.text.split()
-    minutes = int(args[1]) if len(args) > 1 else 30
-    
+    u = message.reply_to_message.from_user
+    cid = message.chat.id
     try:
-        bot.restrict_chat_member(chat_id, user.id, until_date=datetime.now() + timedelta(minutes=minutes))
-        
-        if user.id not in mutes_data:
-            mutes_data[user.id] = {}
-        mutes_data[user.id][chat_id] = datetime.now() + timedelta(minutes=minutes)
-        
-        bot.reply_to(message, f"🔇 {user.first_name} замучен на {minutes} минут!")
+        bot.restrict_chat_member(cid, u.id, until_date=datetime.now() + timedelta(days=3650))
+        if u.id not in mutes_data:
+            mutes_data[u.id] = {}
+        mutes_data[u.id][cid] = datetime.now() + timedelta(days=3650)
+        bot.reply_to(message, f"🔇 {u.first_name} замучен навсегда!")
     except:
-        bot.reply_to(message, "❌ Не удалось замутить пользователя!")
+        bot.reply_to(message, "❌ Не удалось!")
 
-@bot.message_handler(commands=['unmute'])
-def unmute_command(message):
-    if not can_moderate(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ У вас нет прав!")
+@bot.message_handler(commands=['mutetime'])
+def mutetime_cmd(message):
+    if not has_rank(message.chat.id, message.from_user.id, 1):
+        bot.reply_to(message, "❌ Нет прав!")
         return
-    
     if not message.reply_to_message:
-        bot.reply_to(message, "❌ Ответьте на сообщение пользователя!")
+        bot.reply_to(message, "❌ Ответьте на сообщение!")
         return
-    
-    user = message.reply_to_message.from_user
-    chat_id = message.chat.id
-    
-    try:
-        bot.restrict_chat_member(chat_id, user.id, can_send_messages=True)
-        
-        if user.id in mutes_data and chat_id in mutes_data[user.id]:
-            del mutes_data[user.id][chat_id]
-        
-        bot.reply_to(message, f"🔊 {user.first_name} размучен!")
-    except:
-        bot.reply_to(message, "❌ Не удалось размутить!")
-
-@bot.message_handler(commands=['ban'])
-def ban_command(message):
-    if message.chat.type == 'private':
-        bot.reply_to(message, "❌ Эта команда работает только в группах!")
-        return
-    
-    if not can_moderate(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ У вас нет прав!")
-        return
-    
-    if not message.reply_to_message:
-        bot.reply_to(message, "❌ Ответьте на сообщение пользователя!")
-        return
-    
-    user = message.reply_to_message.from_user
-    chat_id = message.chat.id
-    
-    args = message.text.split(maxsplit=1)
-    reason = args[1] if len(args) > 1 else "Нарушение правил"
-    
-    try:
-        bot.ban_chat_member(chat_id, user.id)
-        
-        if user.id not in bans_data:
-            bans_data[user.id] = {}
-        bans_data[user.id][chat_id] = True
-        
-        bot.reply_to(message, f"🚫 {user.first_name} забанен!\nПричина: {reason}")
-    except:
-        bot.reply_to(message, "❌ Не удалось забанить пользователя!")
-
-@bot.message_handler(commands=['kick'])
-def kick_command(message):
-    if message.chat.type == 'private':
-        bot.reply_to(message, "❌ Эта команда работает только в группах!")
-        return
-    
-    if not can_moderate(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ У вас нет прав!")
-        return
-    
-    if not message.reply_to_message:
-        bot.reply_to(message, "❌ Ответьте на сообщение пользователя!")
-        return
-    
-    user = message.reply_to_message.from_user
-    chat_id = message.chat.id
-    
-    try:
-        bot.ban_chat_member(chat_id, user.id)
-        bot.unban_chat_member(chat_id, user.id)  # Кик = бан + разбан
-        bot.reply_to(message, f"👢 {user.first_name} кикнут из чата!")
-    except:
-        bot.reply_to(message, "❌ Не удалось кикнуть!")
-
-@bot.message_handler(commands=['unban'])
-def unban_command(message):
-    if not can_moderate(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ У вас нет прав!")
-        return
-    
     args = message.text.split()
     if len(args) < 2:
-        bot.reply_to(message, "❌ Используй: /unban [ID пользователя]")
+        bot.reply_to(message, "❌ /mutetime [минуты]")
         return
-    
     try:
-        user_id = int(args[1])
-        bot.unban_chat_member(message.chat.id, user_id)
-        
-        if user_id in bans_data and message.chat.id in bans_data[user_id]:
-            del bans_data[user_id][message.chat.id]
-        
-        bot.reply_to(message, f"✅ Пользователь {user_id} разбанен!")
+        mins = int(args[1])
     except:
-        bot.reply_to(message, "❌ Неверный ID или пользователь не забанен!")
+        bot.reply_to(message, "❌ Число!")
+        return
+    u = message.reply_to_message.from_user
+    cid = message.chat.id
+    try:
+        bot.restrict_chat_member(cid, u.id, until_date=datetime.now() + timedelta(minutes=mins))
+        if u.id not in mutes_data:
+            mutes_data[u.id] = {}
+        mutes_data[u.id][cid] = datetime.now() + timedelta(minutes=mins)
+        bot.reply_to(message, f"🔇 {u.first_name} замучен на {mins} мин!")
+    except:
+        bot.reply_to(message, "❌ Не удалось!")
+
+@bot.message_handler(commands=['unmute'])
+def unmute_cmd(message):
+    if not has_rank(message.chat.id, message.from_user.id, 1):
+        bot.reply_to(message, "❌ Нет прав!")
+        return
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение!")
+        return
+    u = message.reply_to_message.from_user
+    cid = message.chat.id
+    try:
+        bot.restrict_chat_member(cid, u.id, can_send_messages=True)
+        if u.id in mutes_data:
+            mutes_data[u.id].pop(cid, None)
+        bot.reply_to(message, f"🔊 {u.first_name} размучен!")
+    except:
+        bot.reply_to(message, "❌ Не удалось!")
+
+@bot.message_handler(commands=['bantime'])
+def bantime_cmd(message):
+    if not has_rank(message.chat.id, message.from_user.id, 2):
+        bot.reply_to(message, "❌ Нужен ранг 2!")
+        return
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение!")
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        bot.reply_to(message, "❌ /bantime [минуты]")
+        return
+    try:
+        mins = int(args[1])
+    except:
+        bot.reply_to(message, "❌ Число!")
+        return
+    u = message.reply_to_message.from_user
+    cid = message.chat.id
+    try:
+        bot.ban_chat_member(cid, u.id, until_date=datetime.now() + timedelta(minutes=mins))
+        bot.reply_to(message, f"🚫 {u.first_name} забанен на {mins} мин!")
+    except:
+        bot.reply_to(message, "❌ Не удалось!")
+
+@bot.message_handler(commands=['ban'])
+def ban_cmd(message):
+    if not has_rank(message.chat.id, message.from_user.id, 3):
+        bot.reply_to(message, "❌ Нужен ранг 3!")
+        return
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение!")
+        return
+    u = message.reply_to_message.from_user
+    cid = message.chat.id
+    args = message.text.split(maxsplit=1)
+    reason = args[1] if len(args) > 1 else "Нарушение"
+    try:
+        bot.ban_chat_member(cid, u.id)
+        if u.id not in bans_data:
+            bans_data[u.id] = {}
+        bans_data[u.id][cid] = True
+        bot.reply_to(message, f"🚫 {u.first_name} забанен!\nПричина: {reason}")
+    except:
+        bot.reply_to(message, "❌ Не удалось!")
+
+@bot.message_handler(commands=['kick'])
+def kick_cmd(message):
+    if not has_rank(message.chat.id, message.from_user.id, 1):
+        bot.reply_to(message, "❌ Нет прав!")
+        return
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение!")
+        return
+    u = message.reply_to_message.from_user
+    cid = message.chat.id
+    try:
+        bot.ban_chat_member(cid, u.id)
+        bot.unban_chat_member(cid, u.id)
+        bot.reply_to(message, f"👢 {u.first_name} кикнут!")
+    except:
+        bot.reply_to(message, "❌ Не удалось!")
+
+@bot.message_handler(commands=['unban'])
+def unban_cmd(message):
+    if not has_rank(message.chat.id, message.from_user.id, 3):
+        bot.reply_to(message, "❌ Нужен ранг 3!")
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        bot.reply_to(message, "❌ /unban [ID]")
+        return
+    try:
+        uid = int(args[1])
+        bot.unban_chat_member(message.chat.id, uid)
+        if uid in bans_data:
+            bans_data[uid].pop(message.chat.id, None)
+        bot.reply_to(message, f"✅ {uid} разбанен!")
+    except:
+        bot.reply_to(message, "❌ Ошибка!")
 
 # ===== НАСТРОЙКИ ЧАТА =====
 @bot.message_handler(commands=['setrules'])
-def set_rules(message):
-    if not can_moderate(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ У вас нет прав!")
+def setrules_cmd(message):
+    if not is_owner_or_creator(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ Только владелец!")
         return
-    
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        bot.reply_to(message, "❌ Используй: /setrules [текст правил]")
+        bot.reply_to(message, "❌ /setrules [текст]")
         return
-    
-    chat_data = get_chat_data(message.chat.id)
-    chat_data['rules'] = args[1]
-    bot.reply_to(message, "✅ Правила чата обновлены!")
+    get_chat_data(message.chat.id)['rules'] = args[1]
+    bot.reply_to(message, "✅ Правила обновлены!")
 
 @bot.message_handler(commands=['setwelcome'])
-def set_welcome(message):
-    if not can_moderate(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ У вас нет прав!")
+def setwelcome_cmd(message):
+    if not is_owner_or_creator(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ Только владелец!")
         return
-    
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        bot.reply_to(message, "❌ Используй: /setwelcome [текст приветствия]\nМожно использовать {name} для имени пользователя")
+        bot.reply_to(message, "❌ /setwelcome [текст]")
         return
-    
-    chat_data = get_chat_data(message.chat.id)
-    chat_data['welcome'] = args[1]
+    get_chat_data(message.chat.id)['welcome'] = args[1]
     bot.reply_to(message, "✅ Приветствие обновлено!")
 
 @bot.message_handler(commands=['welcome_on'])
 def welcome_on(message):
-    if not can_moderate(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ У вас нет прав!")
+    if not is_owner_or_creator(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ Только владелец!")
         return
-    chat_data = get_chat_data(message.chat.id)
-    chat_data['welcome_enabled'] = True
+    get_chat_data(message.chat.id)['welcome_enabled'] = True
     bot.reply_to(message, "✅ Приветствие включено!")
 
 @bot.message_handler(commands=['welcome_off'])
 def welcome_off(message):
-    if not can_moderate(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ У вас нет прав!")
+    if not is_owner_or_creator(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ Только владелец!")
         return
-    chat_data = get_chat_data(message.chat.id)
-    chat_data['welcome_enabled'] = False
+    get_chat_data(message.chat.id)['welcome_enabled'] = False
     bot.reply_to(message, "✅ Приветствие выключено!")
 
-@bot.message_handler(commands=['admins'])
-def admins_list(message):
-    if message.chat.type == 'private':
-        bot.reply_to(message, "❌ Эта команда работает только в группах!")
-        return
-    
-    admins = bot.get_chat_administrators(message.chat.id)
-    text = "👑 **Админы чата:**\n\n"
-    for admin in admins:
-        status = "Создатель" if admin.status == 'creator' else "Админ"
-        text += f"• {admin.user.first_name} — {status}\n"
-    
-    bot.reply_to(message, text, parse_mode="Markdown")
-
-# ===== ПРИВЕТСТВИЕ НОВЫХ УЧАСТНИКОВ =====
+# ===== ПРИВЕТСТВИЕ =====
 @bot.message_handler(content_types=['new_chat_members'])
-def welcome_new_member(message):
-    chat_data = get_chat_data(message.chat.id)
-    
-    if not chat_data['welcome_enabled']:
+def welcome_new(message):
+    cd = get_chat_data(message.chat.id)
+    if not cd['welcome_enabled']:
         return
-    
-    for new_member in message.new_chat_members:
-        welcome_text = chat_data['welcome'].replace('{name}', new_member.first_name)
-        bot.send_message(message.chat.id, welcome_text)
+    for nm in message.new_chat_members:
+        bot.send_message(message.chat.id, cd['welcome'].replace('{name}', nm.first_name))
 
-# ===== АВТОМОДЕРАЦИЯ (антиспам) =====
-# Словарь для отслеживания сообщений: {user_id: [список последних сообщений]}
-message_history = {}
-
-@bot.message_handler(func=lambda m: True)  # Обрабатывает все сообщения
-def auto_moderation(message):
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-    
+# ===== АНТИСПАМ =====
+@bot.message_handler(func=lambda m: True)
+def auto_mod(message):
+    uid = message.from_user.id
+    cid = message.chat.id
     if message.chat.type == 'private':
         return
     
-    # Проверка на мут
-    if user_id in mutes_data and chat_id in mutes_data.get(user_id, {}):
-        mute_until = mutes_data[user_id][chat_id]
-        if datetime.now() < mute_until:
+    if uid in mutes_data and cid in mutes_data.get(uid, {}):
+        if datetime.now() < mutes_data[uid][cid]:
             try:
-                bot.delete_message(chat_id, message.message_id)
+                bot.delete_message(cid, message.message_id)
             except:
                 pass
             return
     
-    # Проверка на спам (одинаковые сообщения)
-    if user_id not in message_history:
-        message_history[user_id] = []
+    if uid not in message_history:
+        message_history[uid] = []
+    message_history[uid].append({"text": message.text, "time": datetime.now()})
+    if len(message_history[uid]) > 10:
+        message_history[uid] = message_history[uid][-10:]
     
-    message_history[user_id].append({
-        "text": message.text,
-        "time": datetime.now()
-    })
-    
-    # Оставляем только последние 10 сообщений
-    if len(message_history[user_id]) > 10:
-        message_history[user_id] = message_history[user_id][-10:]
-    
-    # Проверяем, не спамит ли пользователь
-    recent = [m for m in message_history[user_id] if (datetime.now() - m['time']).seconds < 5]
-    
+    recent = [m for m in message_history[uid] if (datetime.now() - m['time']).seconds < 5]
     if len(recent) >= 5:
-        # Спам-режим! Удаляем последнее сообщение
         try:
-            bot.delete_message(chat_id, message.message_id)
-            # Если можно, мутим на 1 минуту
-            if can_moderate(chat_id, bot.get_me().id):
-                bot.restrict_chat_member(chat_id, user_id, until_date=datetime.now() + timedelta(minutes=1))
+            bot.delete_message(cid, message.message_id)
+            if has_rank(cid, bot.get_me().id, 1):
+                bot.restrict_chat_member(cid, uid, until_date=datetime.now() + timedelta(minutes=1))
         except:
             pass
 
-# ===== ГЛОБАЛЬНЫЕ КОМАНДЫ (только владелец) =====
+# ===== ГЛОБАЛЬНЫЕ =====
 @bot.message_handler(commands=['gban'])
-def global_ban(message):
-    if not is_global_admin(message.from_user.id):
+def gban_cmd(message):
+    if message.from_user.id != OWNER_ID:
         bot.reply_to(message, "❌ Только владелец бота!")
         return
-    
     if not message.reply_to_message:
-        bot.reply_to(message, "❌ Ответьте на сообщение пользователя!")
+        bot.reply_to(message, "❌ Ответьте на сообщение!")
         return
-    
-    user = message.reply_to_message.from_user
-    # В реальном приложении — записать в глобальную базу банов
-    bot.reply_to(message, f"🌍 {user.first_name} глобально забанен!")
+    bot.reply_to(message, f"🌍 {message.reply_to_message.from_user.first_name} глобально забанен!")
 
 @bot.message_handler(commands=['broadcast'])
-def broadcast(message):
-    if not is_global_admin(message.from_user.id):
+def broadcast_cmd(message):
+    if message.from_user.id != OWNER_ID:
         bot.reply_to(message, "❌ Только владелец бота!")
         return
-    
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        bot.reply_to(message, "❌ Используй: /broadcast [текст]")
+        bot.reply_to(message, "❌ /broadcast [текст]")
         return
-    
-    text = args[1]
     sent = 0
-    for chat_id in list(chats_data.keys()):
+    for cid in list(chats_data.keys()):
         try:
-            bot.send_message(chat_id, f"📢 {text}")
+            bot.send_message(cid, f"📢 {args[1]}")
             sent += 1
         except:
             pass
-    
-    bot.reply_to(message, f"✅ Рассылка отправлена в {sent} чатов!")
+    bot.reply_to(message, f"✅ Отправлено в {sent} чатов!")
 
 # ===== ЗАПУСК =====
 print("🤖 CityGuard запущен!")
