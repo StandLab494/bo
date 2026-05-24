@@ -3,7 +3,7 @@ import random
 from datetime import datetime, timedelta
 
 # ===== НАСТРОЙКИ =====
-TOKEN = "8906578550:AAGV7toADTAkBOw6aufuhV_PQbbnmzEuxrQ"
+TOKEN = "8939220569:AAHLTwkf9rD7Gf22EK9CBqtgg2Q19v1LomI"
 OWNER_ID = 8558737152
 ADMIN_IDS = [8558737152]
 START_MONEY = 100
