@@ -1,4 +1,7 @@
 import telebot
+import requests
+import time
+import threading
 from datetime import datetime, timedelta
 
 # ===== НАСТРОЙКИ =====
@@ -8,12 +11,13 @@ OWNER_ID = 8558737152
 bot = telebot.TeleBot(TOKEN)
 
 # ===== БАЗЫ ДАННЫХ =====
-staff_data = {}        # {chat_id: {user_id: rank}}
-warns_data = {}        # {user_id: {chat_id: [warns]}}
-mutes_data = {}        # {user_id: {chat_id: datetime}}
-bans_data = {}         # {user_id: {chat_id: True}}
-chats_data = {}        # {chat_id: {rules, welcome, welcome_enabled}}
-message_history = {}   # {user_id: [messages]}
+staff_data = {}
+warns_data = {}
+mutes_data = {}
+bans_data = {}
+chats_data = {}
+message_history = {}
+daily_stats = {}
 MAX_WARNS = 3
 
 # ===== ФУНКЦИИ РАНГОВ =====
@@ -51,6 +55,19 @@ def get_chat_data(chat_id):
         }
     return chats_data[chat_id]
 
+def count_message(message):
+    cid = message.chat.id
+    uid = message.from_user.id
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    if cid not in daily_stats:
+        daily_stats[cid] = {}
+    if today not in daily_stats[cid]:
+        daily_stats[cid][today] = {"messages": 0, "users": {}, "new_users": []}
+    
+    daily_stats[cid][today]["messages"] += 1
+    daily_stats[cid][today]["users"][uid] = daily_stats[cid][today]["users"].get(uid, 0) + 1
+
 # ===== КОМАНДЫ ДЛЯ ВСЕХ =====
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -69,18 +86,22 @@ def help_cmd(message):
 
 👤 **Для всех:**
 /id — свой ID
-/info — информация о пользователе
-/report — пожаловаться (реплай)
-/rules — правила чата
-/staff — список персонала
+/info — информация
+/report — пожаловаться
+/rules — правила
+/staff — персонал
+/daily — статистика дня
 
-🛡️ **Модерация (по рангам):**
-Ранг 1+: /mute, /mutetime, /warn
-Ранг 2+: + /bantime
-Ранг 3+: + /ban
-Ранг 4: + /raising, /downgrade, /gg, /setrules, /setwelcome
+🌐 **Утилиты:**
+/translate — перевод
+/anonym — анонимное сообщение
 
-⚠️ **Варны:** 3 предупреждения = авто-наказание"""
+🛡️ **Модерация:**
+Ранг 1: /mute, /mutetime, /warn, /kick
+Ранг 2: + /bantime
+Ранг 3: + /ban, /unban
+Ранг 4: + /raising, /downgrade, /gg
+Ранг 4: /setrules, /setwelcome"""
     bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['id'])
@@ -152,6 +173,91 @@ def staff_list(message):
             text += f"• {u.first_name} — {rn[rank]} (ранг {rank})\n"
         except:
             text += f"• ID:{uid} — {rn[rank]}\n"
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+# ===== ПЕРЕВОДЧИК =====
+@bot.message_handler(commands=['translate'])
+def translate_cmd(message):
+    args = message.text.split(maxsplit=1)
+    
+    if not message.reply_to_message and len(args) < 2:
+        bot.reply_to(message, "❌ Ответьте на сообщение или напишите текст!\nПример: /translate Hello world")
+        return
+    
+    if message.reply_to_message:
+        text = message.reply_to_message.text
+        if not text:
+            bot.reply_to(message, "❌ В сообщении нет текста!")
+            return
+    else:
+        text = args[1]
+    
+    try:
+        url = f"https://api.mymemory.translated.net/get?q={text}&langpair=auto|ru"
+        response = requests.get(url).json()
+        translated = response['responseData']['translatedText']
+        original_lang = response['responseData']['detectedLanguage'].upper()
+        
+        bot.reply_to(message, 
+            f"🌐 **Перевод**\n\n📥 {original_lang}: {text}\n📤 RU: {translated}",
+            parse_mode="Markdown")
+    except:
+        bot.reply_to(message, "❌ Не удалось перевести. Попробуйте позже.")
+
+# ===== АНОНИМНОЕ СООБЩЕНИЕ =====
+@bot.message_handler(commands=['anonym'])
+def anonym_cmd(message):
+    args = message.text.split(maxsplit=1)
+    
+    if len(args) < 2:
+        bot.reply_to(message, "❌ Напишите текст!\nПример: /anonym Привет всем!")
+        return
+    
+    try:
+        bot.delete_message(message.chat.id, message.message_id)
+    except:
+        pass
+    
+    bot.send_message(
+        message.chat.id,
+        f"🕵️ **Аноним:**\n\n{args[1]}",
+        parse_mode="Markdown"
+    )
+
+# ===== ЕЖЕДНЕВНАЯ ГАЗЕТА =====
+@bot.message_handler(commands=['daily'])
+def daily_report_cmd(message):
+    if not has_rank(message.chat.id, message.from_user.id, 2):
+        bot.reply_to(message, "❌ Нужен ранг 2+!")
+        return
+    
+    cid = message.chat.id
+    today = datetime.now().strftime("%Y-%m-%d")
+    stats = daily_stats.get(cid, {}).get(today, {})
+    
+    if not stats:
+        bot.reply_to(message, "📭 Статистика за сегодня пока пуста.")
+        return
+    
+    total_msgs = stats["messages"]
+    total_users = len(stats["users"])
+    top_users = sorted(stats["users"].items(), key=lambda x: x[1], reverse=True)[:5]
+    
+    text = f"""📰 **Газета чата** ({today})
+━━━━━━━━━━━━━━━━
+💬 Сообщений: {total_msgs}
+👥 Активных: {total_users}
+
+🏆 **Топ болтунов:**
+"""
+    for i, (uid, count) in enumerate(top_users, 1):
+        try:
+            user = bot.get_chat_member(cid, uid).user
+            name = user.first_name
+        except:
+            name = f"ID:{uid}"
+        text += f"{i}. {name} — {count} сообщ.\n"
+    
     bot.reply_to(message, text, parse_mode="Markdown")
 
 # ===== ПОВЫШЕНИЕ/ПОНИЖЕНИЕ =====
@@ -456,6 +562,8 @@ def auto_mod(message):
     if message.chat.type == 'private':
         return
     
+    count_message(message)
+    
     if uid in mutes_data and cid in mutes_data.get(uid, {}):
         if datetime.now() < mutes_data[uid][cid]:
             try:
@@ -508,6 +616,37 @@ def broadcast_cmd(message):
             pass
     bot.reply_to(message, f"✅ Отправлено в {sent} чатов!")
 
+# ===== АВТО-ОТЧЁТ =====
+def auto_daily_report():
+    while True:
+        now = datetime.now()
+        target = now.replace(hour=23, minute=55, second=0, microsecond=0)
+        if now > target:
+            target += timedelta(days=1)
+        time.sleep((target - now).total_seconds())
+        
+        today = datetime.now().strftime("%Y-%m-%d")
+        for cid, chat_data in daily_stats.items():
+            stats = chat_data.get(today, {})
+            if stats and stats["messages"] > 10:
+                total_msgs = stats["messages"]
+                total_users = len(stats["users"])
+                top_users = sorted(stats["users"].items(), key=lambda x: x[1], reverse=True)[:5]
+                
+                text = f"📰 **Итоги дня** ({today})\n💬 {total_msgs} сообщ. | 👥 {total_users} акт.\n🏆 Топ: "
+                for i, (uid, _) in enumerate(top_users):
+                    try:
+                        name = bot.get_chat_member(cid, uid).user.first_name
+                    except:
+                        name = f"ID:{uid}"
+                    text += f"{i+1}. {name} "
+                
+                try:
+                    bot.send_message(cid, text, parse_mode="Markdown")
+                except:
+                    pass
+
 # ===== ЗАПУСК =====
 print("🤖 CityGuard запущен!")
+threading.Thread(target=auto_daily_report, daemon=True).start()
 bot.infinity_polling()
