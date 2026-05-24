@@ -1,455 +1,512 @@
 import telebot
-import random
 from datetime import datetime, timedelta
+import re
 
 # ===== НАСТРОЙКИ =====
 TOKEN = "8939220569:AAHLTwkf9rD7Gf22EK9CBqtgg2Q19v1LomI"
-OWNER_ID = 8558737152
-ADMIN_IDS = [8558737152]
-START_MONEY = 5000000  # 5 миллионов стартового капитала
-START_ROAD = 5  # 5 метров дороги бесплатно
-
-# ===== ПРОМОКОДЫ =====
-PROMOCODES = {
-    "START100": {"reward": 100000, "uses": -1, "description": "100.000$ новичку"},
-    "LUCKY2024": {"reward": 250000, "uses": 50, "description": "+250.000$"},
-    "SUPERGAME": {"reward": 500000, "uses": 20, "description": "+500.000$"},
-    "DAILYBONUS": {"reward": 50000, "uses": -1, "description": "+50.000$"},
-    "TOPPLAYER": {"reward": 1000000, "uses": 5, "description": "+1.000.000$"},
-    "CITYMASTER": {"reward": 2000000, "uses": 10, "description": "+2.000.000$ для мэров"},
-    "ROADKING": {"reward": 500000, "uses": -1, "description": "+500.000$ на дороги"},
-}
-
-# ===== ЗДАНИЯ =====
-BUILDINGS = {
-    "house": {"name": "🏠 Дом", "price": 50000, "income": 50, "population": 10, "joy": 1},
-    "shop": {"name": "🏪 Магазин", "price": 100000, "income": 200, "population": 0, "joy": 2},
-    "power": {"name": "⚡ Электростанция", "price": 200000, "income": 0, "population": 0, "joy": 0, "energy": 50},
-    "factory": {"name": "🏭 Завод", "price": 150000, "income": 500, "population": 0, "joy": -5, "energy_cost": 10},
-    "park": {"name": "🌳 Парк", "price": 75000, "income": 10, "population": 0, "joy": 10},
-    "bank": {"name": "🏦 Банк", "price": 500000, "income": 1000, "population": 0, "joy": 5},
-    "cosmo": {"name": "🚀 Космоцентр", "price": 1000000, "income": 2000, "population": 0, "joy": 50},
-}
-
-# ===== ДОРОГА (ЦЕНЫ ЗА ПАКЕТЫ МЕТРОВ) =====
-ROAD_PACKS = [
-    {"meters": 5, "price": 5000},
-    {"meters": 10, "price": 13000},
-    {"meters": 30, "price": 50000},
-    {"meters": 100, "price": 100000},
-]
+OWNER_ID = 8558737152  # Главный админ (имеет доступ ко всему)
 
 bot = telebot.TeleBot(TOKEN)
-players_data = {}
-clans_data = {}
-BANNED_USERS = {}
-FRIENDS = {}
-FRIEND_REQUESTS = {}
-NEXT_ID = 1000000
+
+# ===== БАЗЫ ДАННЫХ (в памяти, можно заменить на JSON) =====
+# Настройки чатов: {chat_id: {rules: "...", welcome: "...", admins: [id1, id2]}}
+chats_data = {}
+
+# Варны: {user_id: {chat_id: [list of warnings]}}
+warns_data = {}
+
+# Муты: {user_id: {chat_id: datetime_until}}
+mutes_data = {}
+
+# Баны: {user_id: {chat_id: True/False}}
+bans_data = {}
 
 # ===== ФУНКЦИИ =====
-def is_admin(user_id):
-    return user_id in ADMIN_IDS
+def is_chat_admin(chat_id, user_id):
+    """Проверяет, является ли пользователь админом в чате"""
+    try:
+        member = bot.get_chat_member(chat_id, user_id)
+        return member.status in ['creator', 'administrator']
+    except:
+        return False
 
-def is_owner(user_id):
+def is_global_admin(user_id):
+    """Проверяет, является ли пользователь глобальным админом (владельцем)"""
     return user_id == OWNER_ID
 
-def is_banned(user_id):
-    uid = str(user_id)
-    if uid not in BANNED_USERS:
-        return False
-    ban_data = BANNED_USERS[uid]
-    if ban_data["until"] is not None:
-        if datetime.now() > ban_data["until"]:
-            del BANNED_USERS[uid]
-            return False
-    return True
+def can_moderate(chat_id, user_id):
+    """Может ли пользователь выполнять модераторские действия"""
+    return is_global_admin(user_id) or is_chat_admin(chat_id, user_id)
 
-def check_ban(message):
-    if is_banned(message.from_user.id):
-        ban_data = BANNED_USERS.get(str(message.from_user.id))
-        if ban_data:
-            reason = ban_data["reason"]
-            until = ban_data["until"]
-            if until:
-                remaining = until - datetime.now()
-                hours = remaining.seconds // 3600
-                minutes = (remaining.seconds % 3600) // 60
-                time_info = f"⏳ Разбан через: {hours} ч. {minutes} мин."
-            else:
-                time_info = "⏳ Разбан: навсегда"
-            text = f"""🚫 **YOU BEEN BANNED!**
-📝 Причина: {reason}
-{time_info}
-👤 Забанил: {ban_data['by']}
-
-Если считаешь бан несправедливым, свяжись с главным владельцем."""
-            bot.reply_to(message, text, parse_mode="Markdown")
-        return True
-    return False
-
-def get_new_id():
-    global NEXT_ID
-    new_id = NEXT_ID
-    NEXT_ID += 1
-    return new_id
-
-def get_player(user_id):
-    user_id = str(user_id)
-    if user_id not in players_data:
-        players_data[user_id] = {
-            "name": "",
-            "money": START_MONEY,
-            "road": START_ROAD,
-            "used_road": 0,
-            "buildings": {},  # {"house": 0, "shop": 0, ...}
-            "income": 0,
-            "population": 0,
-            "joy": 0,
-            "energy": 0,
-            "energy_used": 0,
-            "last_daily": None,
-            "used_promos": [],
-            "clan": None,
-            "level": 1,
-            "exp": 0,
-            "game_id": get_new_id()
+def get_chat_data(chat_id):
+    """Получает или создаёт данные чата"""
+    if chat_id not in chats_data:
+        chats_data[chat_id] = {
+            "rules": "Правила чата ещё не установлены.",
+            "welcome": "👋 Добро пожаловать в чат, {name}!",
+            "welcome_enabled": True,
+            "admins": []
         }
-    return players_data[user_id]
+    return chats_data[chat_id]
 
-def get_main_keyboard():
-    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(
-        telebot.types.KeyboardButton("🏙️ Мой город"),
-        telebot.types.KeyboardButton("🏗️ Постройки"),
-        telebot.types.KeyboardButton("🛣️ Дорога"),
-        telebot.types.KeyboardButton("📦 Кейсы"),
-    )
-    markup.add(
-        telebot.types.KeyboardButton("🎁 Бонус"),
-        telebot.types.KeyboardButton("👥 Топ городов"),
-        telebot.types.KeyboardButton("🏰 Кланы"),
-        telebot.types.KeyboardButton("👫 Друзья"),
-    )
-    markup.add(
-        telebot.types.KeyboardButton("👤 Профиль"),
-        telebot.types.KeyboardButton("🆔 Мой ID"),
-        telebot.types.KeyboardButton("❓ Помощь"),
-    )
-    return markup
-
-# ===== КНОПКИ / START =====
+# ===== ОСНОВНЫЕ КОМАНДЫ (для всех) =====
 @bot.message_handler(commands=['start'])
 def start(message):
-    user_id = message.from_user.id
-    if check_ban(message):
-        return
-    player = get_player(user_id)
-    if player["name"] == "":
-        player["name"] = message.from_user.first_name
+    if message.chat.type == 'private':
+        bot.reply_to(message,
+            f"🤖 **CityGuard — Чат-менеджер**\n\n"
+            f"Добавь меня в группу и выдай права админа!\n\n"
+            f"📜 /help — список команд\n"
+            f"📊 /info — информация о пользователе\n"
+            f"🆔 /id — узнать свой ID\n",
+            parse_mode="Markdown")
 
-    bot.send_message(message.chat.id,
-        f"🏙️ Добро пожаловать в город, мэр {player['name']}!\n\n"
-        f"💰 Баланс: {player['money']:,}$\n"
-        f"🛣️ Дороги: {player['used_road']}/{player['road']}м\n"
-        f"👥 Население: {player['population']}\n"
-        f"😊 Радость: {player['joy']}\n"
-        f"🆔 ID: {player['game_id']}\n\n"
-        f"Используй кнопки для управления!",
-        reply_markup=get_main_keyboard())
+@bot.message_handler(commands=['help'])
+def help_command(message):
+    text = """🤖 **Команды CityGuard:**
 
-# ===== ОБНОВЛЕНИЕ =====
-@bot.message_handler(commands=['update'])
-def update_keyboard(message):
-    if check_ban(message):
-        return
-    bot.send_message(message.chat.id, "✅ Кнопки обновлены!", reply_markup=get_main_keyboard())
+👤 **Для всех:**
+/id — узнать свой ID
+/info — информация о пользователе
+/report [причина] — пожаловаться на сообщение (реплай)
+/rules — правила чата
 
-# ===== МОЙ ГОРОД =====
-@bot.message_handler(func=lambda m: m.text == "🏙️ Мой город")
-def my_city(message):
-    if check_ban(message):
-        return
-    player = get_player(message.from_user.id)
+🛡️ **Для админов чата:**
+/warn [причина] — предупреждение (реплай)
+/mute [минуты] — замутить (реплай)
+/unmute — размутить (реплай)
+/ban [причина] — забанить (реплай)
+/kick — кикнуть (реплай)
+/unban — разбанить (по ID)
+
+⚙️ **Настройки чата (админы):**
+/setrules [текст] — установить правила
+/setwelcome [текст] — установить приветствие
+/welcome_on — включить приветствие
+/welcome_off — выключить приветствие
+/admins — список админов чата
+
+👑 **Глобальный админ:**
+/gban — глобальный бан
+/gunban — глобальный разбан
+/broadcast [текст] — рассылка по чатам"""
     
-    # Пересчитываем доход, население, энергию
-    income = 0
-    population = 0
-    joy = 0
-    energy = 0
-    energy_used = 0
-    
-    for bkey, bdata in BUILDINGS.items():
-        count = player["buildings"].get(bkey, 0)
-        if count > 0:
-            income += bdata.get("income", 0) * count
-            population += bdata.get("population", 0) * count
-            joy += bdata.get("joy", 0) * count
-            if "energy" in bdata:
-                energy += bdata["energy"] * count
-            if "energy_cost" in bdata:
-                energy_used += bdata["energy_cost"] * count
-    
-    player["income"] = income
-    player["population"] = population
-    player["joy"] = joy
-    player["energy"] = energy
-    player["energy_used"] = energy_used
-    
-    text = f"""🏙️ **Город {player['name']}**
+    bot.reply_to(message, text, parse_mode="Markdown")
 
-💰 Баланс: {player['money']:,}$
-📈 Доход: {income}$/ч
-🛣️ Дороги: {player['used_road']}/{player['road']}м
-👥 Население: {population}
-😊 Радость: {joy}
-⚡ Энергия: {energy} (исп. {energy_used})
+@bot.message_handler(commands=['id'])
+def get_id(message):
+    if message.reply_to_message:
+        user = message.reply_to_message.from_user
+        bot.reply_to(message, f"🆔 ID пользователя {user.first_name}: `{user.id}`", parse_mode="Markdown")
+    else:
+        bot.reply_to(message, f"🆔 Твой ID: `{message.from_user.id}`\nЧат ID: `{message.chat.id}`", parse_mode="Markdown")
 
-🏗️ **Постройки:**
+@bot.message_handler(commands=['info'])
+def info_command(message):
+    if message.reply_to_message:
+        user = message.reply_to_message.from_user
+    else:
+        user = message.from_user
+    
+    chat_id = message.chat.id
+    user_id = user.id
+    
+    # Проверяем статус
+    try:
+        member = bot.get_chat_member(chat_id, user_id)
+        status = member.status
+    except:
+        status = "неизвестно"
+    
+    # Проверяем варны
+    warns = warns_data.get(user_id, {}).get(chat_id, [])
+    
+    # Проверяем мут
+    mute_info = mutes_data.get(user_id, {}).get(chat_id)
+    muted = "Да (до {})".format(mute_info.strftime("%H:%M")) if mute_info else "Нет"
+    
+    # Проверяем бан
+    banned = bans_data.get(user_id, {}).get(chat_id, False)
+    
+    text = f"""📊 **Информация о пользователе**
+
+👤 Имя: {user.first_name}
+🆔 ID: `{user.id}`
+👑 Статус: {status}
+⚠️ Варны: {len(warns)}/3
+🔇 Замучен: {muted}
+🚫 Забанен: {'Да' if banned else 'Нет'}
 """
-    for bkey, bdata in BUILDINGS.items():
-        count = player["buildings"].get(bkey, 0)
-        if count > 0:
-            text += f"  {bdata['name']}: {count} шт.\n"
-    
-    if all(v == 0 for v in player["buildings"].values()):
-        text += "  Пока ничего не построено.\n"
-    
-    bot.reply_to(message, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
+    bot.reply_to(message, text, parse_mode="Markdown")
 
-# ===== ПОСТРОЙКИ =====
-@bot.message_handler(func=lambda m: m.text == "🏗️ Постройки")
-def buildings_menu(message):
-    if check_ban(message):
-        return
-    markup = telebot.types.InlineKeyboardMarkup(row_width=2)
-    for bkey, bdata in BUILDINGS.items():
-        markup.add(telebot.types.InlineKeyboardButton(
-            f"{bdata['name']} ({bdata['price']:,}$)",
-            callback_data=f"build_{bkey}"
-        ))
-    bot.send_message(message.chat.id, "🏗️ Выбери здание для постройки:", reply_markup=markup)
+@bot.message_handler(commands=['rules'])
+def rules_command(message):
+    chat_data = get_chat_data(message.chat.id)
+    bot.reply_to(message, f"📜 **Правила чата:**\n\n{chat_data['rules']}", parse_mode="Markdown")
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("build_"))
-def build_building(call):
-    user_id = call.from_user.id
-    player = get_player(user_id)
-    bkey = call.data.split("_")[1]
-    bdata = BUILDINGS[bkey]
-    
-    # Проверяем место
-    if player["used_road"] >= player["road"]:
-        bot.answer_callback_query(call.id, "❌ Не хватает дороги! Купи землю в разделе 🛣️ Дорога.")
+@bot.message_handler(commands=['report'])
+def report_command(message):
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение, чтобы пожаловаться!")
         return
     
-    # Проверяем деньги
-    if player["money"] < bdata["price"]:
-        bot.answer_callback_query(call.id, "❌ Не хватает денег!")
-        return
+    args = message.text.split(maxsplit=1)
+    reason = args[1] if len(args) > 1 else "Не указана"
     
-    # Строим
-    player["money"] -= bdata["price"]
-    player["buildings"][bkey] = player["buildings"].get(bkey, 0) + 1
-    player["used_road"] += 1
+    reported_user = message.reply_to_message.from_user
     
-    bot.answer_callback_query(call.id, f"✅ {bdata['name']} построен!")
-    bot.send_message(call.message.chat.id, f"✅ Построено: {bdata['name']}!\nОсталось денег: {player['money']:,}$\nЗанято дороги: {player['used_road']}/{player['road']}м")
+    # Уведомляем админов чата
+    admins = bot.get_chat_administrators(message.chat.id)
+    for admin in admins:
+        try:
+            bot.send_message(admin.user.id,
+                f"🚨 **Репорт в чате {message.chat.id}**\n"
+                f"От: {message.from_user.first_name}\n"
+                f"На: {reported_user.first_name}\n"
+                f"Причина: {reason}",
+                parse_mode="Markdown")
+        except:
+            pass
+    
+    bot.reply_to(message, "✅ Жалоба отправлена администраторам!")
 
-# ===== ДОРОГА =====
-@bot.message_handler(func=lambda m: m.text == "🛣️ Дорога")
-def road_menu(message):
-    if check_ban(message):
+# ===== МОДЕРАЦИЯ =====
+@bot.message_handler(commands=['warn'])
+def warn_command(message):
+    if message.chat.type == 'private':
+        bot.reply_to(message, "❌ Эта команда работает только в группах!")
         return
-    player = get_player(message.from_user.id)
-    markup = telebot.types.InlineKeyboardMarkup()
-    for pack in ROAD_PACKS:
-        markup.add(telebot.types.InlineKeyboardButton(
-            f"{pack['meters']}м — {pack['price']:,}$",
-            callback_data=f"road_{pack['meters']}"
-        ))
-    bot.send_message(message.chat.id,
-        f"🛣️ Покупка земли под застройку\n\nУ тебя: {player['road']}м (занято {player['used_road']}м)\nСвободно: {player['road'] - player['used_road']}м\n\nВыбери пакет:",
-        reply_markup=markup)
+    
+    if not can_moderate(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ У вас нет прав!")
+        return
+    
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение пользователя!")
+        return
+    
+    user = message.reply_to_message.from_user
+    chat_id = message.chat.id
+    
+    args = message.text.split(maxsplit=1)
+    reason = args[1] if len(args) > 1 else "Нарушение правил"
+    
+    if user.id not in warns_data:
+        warns_data[user.id] = {}
+    if chat_id not in warns_data[user.id]:
+        warns_data[user.id][chat_id] = []
+    
+    warns_data[user.id][chat_id].append({
+        "reason": reason,
+        "time": datetime.now().isoformat(),
+        "by": message.from_user.id
+    })
+    
+    warn_count = len(warns_data[user.id][chat_id])
+    
+    if warn_count >= 3:
+        # Авто-бан
+        try:
+            bot.ban_chat_member(chat_id, user.id)
+            bans_data[user.id] = bans_data.get(user.id, {})
+            bans_data[user.id][chat_id] = True
+            bot.reply_to(message, f"🚫 {user.first_name} получил 3 предупреждения и был забанен!")
+        except:
+            bot.reply_to(message, f"⚠️ {user.first_name} получил {warn_count}/3 предупреждений. Нужен бан, но не хватает прав!")
+    else:
+        bot.reply_to(message, f"⚠️ {user.first_name} получил предупреждение ({warn_count}/3)\nПричина: {reason}")
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("road_"))
-def buy_road(call):
-    user_id = call.from_user.id
-    player = get_player(user_id)
-    meters = int(call.data.split("_")[1])
-    
-    # Находим цену
-    pack = next((p for p in ROAD_PACKS if p["meters"] == meters), None)
-    if not pack:
-        bot.answer_callback_query(call.id, "❌ Ошибка!")
+@bot.message_handler(commands=['mute'])
+def mute_command(message):
+    if message.chat.type == 'private':
+        bot.reply_to(message, "❌ Эта команда работает только в группах!")
         return
     
-    if player["money"] < pack["price"]:
-        bot.answer_callback_query(call.id, "❌ Не хватает денег!")
+    if not can_moderate(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ У вас нет прав!")
         return
     
-    player["money"] -= pack["price"]
-    player["road"] += meters
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение пользователя!")
+        return
     
-    bot.answer_callback_query(call.id, f"✅ Куплено {meters}м дороги!")
-    bot.send_message(call.message.chat.id, f"✅ Куплено {meters}м дороги за {pack['price']:,}$!\nВсего дороги: {player['road']}м\nСвободно: {player['road'] - player['used_road']}м")
+    user = message.reply_to_message.from_user
+    chat_id = message.chat.id
+    
+    args = message.text.split()
+    minutes = int(args[1]) if len(args) > 1 else 30
+    
+    try:
+        bot.restrict_chat_member(chat_id, user.id, until_date=datetime.now() + timedelta(minutes=minutes))
+        
+        if user.id not in mutes_data:
+            mutes_data[user.id] = {}
+        mutes_data[user.id][chat_id] = datetime.now() + timedelta(minutes=minutes)
+        
+        bot.reply_to(message, f"🔇 {user.first_name} замучен на {minutes} минут!")
+    except:
+        bot.reply_to(message, "❌ Не удалось замутить пользователя!")
 
-# ===== КЕЙСЫ =====
-@bot.message_handler(func=lambda m: m.text == "📦 Кейсы")
-def cases_menu(message):
-    if check_ban(message):
+@bot.message_handler(commands=['unmute'])
+def unmute_command(message):
+    if not can_moderate(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ У вас нет прав!")
         return
-    markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton("📦 Обычный (10.000$)", callback_data="case_normal"))
-    markup.add(telebot.types.InlineKeyboardButton("🔮 Редкий (50.000$)", callback_data="case_rare"))
-    markup.add(telebot.types.InlineKeyboardButton("🚀 Космический (500.000$)", callback_data="case_cosmo"))
-    bot.send_message(message.chat.id, "📦 Выбери кейс для открытия:", reply_markup=markup)
+    
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение пользователя!")
+        return
+    
+    user = message.reply_to_message.from_user
+    chat_id = message.chat.id
+    
+    try:
+        bot.restrict_chat_member(chat_id, user.id, can_send_messages=True)
+        
+        if user.id in mutes_data and chat_id in mutes_data[user.id]:
+            del mutes_data[user.id][chat_id]
+        
+        bot.reply_to(message, f"🔊 {user.first_name} размучен!")
+    except:
+        bot.reply_to(message, "❌ Не удалось размутить!")
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("case_"))
-def open_case(call):
-    user_id = call.from_user.id
-    player = get_player(user_id)
-    case_type = call.data.split("_")[1]
-    
-    prices = {"normal": 10000, "rare": 50000, "cosmo": 500000}
-    rewards = {
-        "normal": [(5000, 20000), ("house", 1), ("park", 1)],
-        "rare": [(20000, 80000), ("shop", 2), ("power", 1), ("factory", 1)],
-        "cosmo": [(100000, 500000), ("bank", 1), ("cosmo", 1), ("money", 1000000)],
-    }
-    
-    if case_type not in prices:
-        bot.answer_callback_query(call.id, "❌ Ошибка!")
+@bot.message_handler(commands=['ban'])
+def ban_command(message):
+    if message.chat.type == 'private':
+        bot.reply_to(message, "❌ Эта команда работает только в группах!")
         return
     
-    price = prices[case_type]
-    if player["money"] < price:
-        bot.answer_callback_query(call.id, "❌ Не хватает денег!")
+    if not can_moderate(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ У вас нет прав!")
         return
     
-    player["money"] -= price
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение пользователя!")
+        return
     
-    # Выбираем награду
-    reward_pool = rewards[case_type]
-    choice = random.choice(reward_pool)
+    user = message.reply_to_message.from_user
+    chat_id = message.chat.id
     
-    if isinstance(choice[0], int):  # Деньги
-        win_amount = random.randint(choice[0], choice[1])
-        player["money"] += win_amount
-        text = f"💰 Вы выиграли {win_amount:,}$!"
-    elif choice[0] == "money":  # Фиксированная сумма
-        player["money"] += choice[1]
-        text = f"💰 Вы выиграли {choice[1]:,}$!"
-    else:  # Здание
-        bkey = choice[0]
-        count = choice[1]
-        if player["used_road"] + count <= player["road"]:
-            player["buildings"][bkey] = player["buildings"].get(bkey, 0) + count
-            player["used_road"] += count
-            text = f"🏗️ Вы выиграли {BUILDINGS[bkey]['name']} x{count}!"
-        else:
-            # Если нет места — даём деньги вместо здания
-            compensation = BUILDINGS[bkey]["price"] * count // 2
-            player["money"] += compensation
-            text = f"🏗️ Вы выиграли {BUILDINGS[bkey]['name']} x{count}, но нет места!\n💰 Компенсация: {compensation:,}$"
+    args = message.text.split(maxsplit=1)
+    reason = args[1] if len(args) > 1 else "Нарушение правил"
     
-    bot.answer_callback_query(call.id, "🎉 Кейс открыт!")
-    bot.send_message(call.message.chat.id, f"📦 Открыт кейс за {price:,}$!\n\n{text}\n\nБаланс: {player['money']:,}$")
+    try:
+        bot.ban_chat_member(chat_id, user.id)
+        
+        if user.id not in bans_data:
+            bans_data[user.id] = {}
+        bans_data[user.id][chat_id] = True
+        
+        bot.reply_to(message, f"🚫 {user.first_name} забанен!\nПричина: {reason}")
+    except:
+        bot.reply_to(message, "❌ Не удалось забанить пользователя!")
 
-# ===== БОНУС =====
-@bot.message_handler(func=lambda m: m.text == "🎁 Бонус")
-def daily_bonus(message):
-    if check_ban(message):
+@bot.message_handler(commands=['kick'])
+def kick_command(message):
+    if message.chat.type == 'private':
+        bot.reply_to(message, "❌ Эта команда работает только в группах!")
         return
+    
+    if not can_moderate(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ У вас нет прав!")
+        return
+    
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение пользователя!")
+        return
+    
+    user = message.reply_to_message.from_user
+    chat_id = message.chat.id
+    
+    try:
+        bot.ban_chat_member(chat_id, user.id)
+        bot.unban_chat_member(chat_id, user.id)  # Кик = бан + разбан
+        bot.reply_to(message, f"👢 {user.first_name} кикнут из чата!")
+    except:
+        bot.reply_to(message, "❌ Не удалось кикнуть!")
+
+@bot.message_handler(commands=['unban'])
+def unban_command(message):
+    if not can_moderate(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ У вас нет прав!")
+        return
+    
+    args = message.text.split()
+    if len(args) < 2:
+        bot.reply_to(message, "❌ Используй: /unban [ID пользователя]")
+        return
+    
+    try:
+        user_id = int(args[1])
+        bot.unban_chat_member(message.chat.id, user_id)
+        
+        if user_id in bans_data and message.chat.id in bans_data[user_id]:
+            del bans_data[user_id][message.chat.id]
+        
+        bot.reply_to(message, f"✅ Пользователь {user_id} разбанен!")
+    except:
+        bot.reply_to(message, "❌ Неверный ID или пользователь не забанен!")
+
+# ===== НАСТРОЙКИ ЧАТА =====
+@bot.message_handler(commands=['setrules'])
+def set_rules(message):
+    if not can_moderate(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ У вас нет прав!")
+        return
+    
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.reply_to(message, "❌ Используй: /setrules [текст правил]")
+        return
+    
+    chat_data = get_chat_data(message.chat.id)
+    chat_data['rules'] = args[1]
+    bot.reply_to(message, "✅ Правила чата обновлены!")
+
+@bot.message_handler(commands=['setwelcome'])
+def set_welcome(message):
+    if not can_moderate(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ У вас нет прав!")
+        return
+    
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.reply_to(message, "❌ Используй: /setwelcome [текст приветствия]\nМожно использовать {name} для имени пользователя")
+        return
+    
+    chat_data = get_chat_data(message.chat.id)
+    chat_data['welcome'] = args[1]
+    bot.reply_to(message, "✅ Приветствие обновлено!")
+
+@bot.message_handler(commands=['welcome_on'])
+def welcome_on(message):
+    if not can_moderate(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ У вас нет прав!")
+        return
+    chat_data = get_chat_data(message.chat.id)
+    chat_data['welcome_enabled'] = True
+    bot.reply_to(message, "✅ Приветствие включено!")
+
+@bot.message_handler(commands=['welcome_off'])
+def welcome_off(message):
+    if not can_moderate(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ У вас нет прав!")
+        return
+    chat_data = get_chat_data(message.chat.id)
+    chat_data['welcome_enabled'] = False
+    bot.reply_to(message, "✅ Приветствие выключено!")
+
+@bot.message_handler(commands=['admins'])
+def admins_list(message):
+    if message.chat.type == 'private':
+        bot.reply_to(message, "❌ Эта команда работает только в группах!")
+        return
+    
+    admins = bot.get_chat_administrators(message.chat.id)
+    text = "👑 **Админы чата:**\n\n"
+    for admin in admins:
+        status = "Создатель" if admin.status == 'creator' else "Админ"
+        text += f"• {admin.user.first_name} — {status}\n"
+    
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+# ===== ПРИВЕТСТВИЕ НОВЫХ УЧАСТНИКОВ =====
+@bot.message_handler(content_types=['new_chat_members'])
+def welcome_new_member(message):
+    chat_data = get_chat_data(message.chat.id)
+    
+    if not chat_data['welcome_enabled']:
+        return
+    
+    for new_member in message.new_chat_members:
+        welcome_text = chat_data['welcome'].replace('{name}', new_member.first_name)
+        bot.send_message(message.chat.id, welcome_text)
+
+# ===== АВТОМОДЕРАЦИЯ (антиспам) =====
+# Словарь для отслеживания сообщений: {user_id: [список последних сообщений]}
+message_history = {}
+
+@bot.message_handler(func=lambda m: True)  # Обрабатывает все сообщения
+def auto_moderation(message):
     user_id = message.from_user.id
-    player = get_player(user_id)
-    today = datetime.now().strftime("%Y-%m-%d")
+    chat_id = message.chat.id
     
-    if player["last_daily"] == today:
-        bot.reply_to(message, "❌ Ты уже получал бонус сегодня! Приходи завтра.", reply_markup=get_main_keyboard())
+    if message.chat.type == 'private':
         return
     
-    bonus = random.randint(50000, 200000)
-    player["money"] += bonus
-    player["last_daily"] = today
+    # Проверка на мут
+    if user_id in mutes_data and chat_id in mutes_data.get(user_id, {}):
+        mute_until = mutes_data[user_id][chat_id]
+        if datetime.now() < mute_until:
+            try:
+                bot.delete_message(chat_id, message.message_id)
+            except:
+                pass
+            return
     
-    # Иногда даём бесплатное здание
-    extra = ""
-    if random.random() < 0.2:
-        free_building = random.choice(["house", "park"])
-        if player["used_road"] < player["road"]:
-            player["buildings"][free_building] = player["buildings"].get(free_building, 0) + 1
-            player["used_road"] += 1
-            extra = f"\n🎁 Бонус: {BUILDINGS[free_building]['name']} бесплатно!"
-        else:
-            extra = "\n🎁 Бонусное здание не влезло (нет дороги)!"
+    # Проверка на спам (одинаковые сообщения)
+    if user_id not in message_history:
+        message_history[user_id] = []
     
-    bot.reply_to(message,
-        f"🎉 Ты получил {bonus:,}$!\nТеперь у тебя {player['money']:,}${extra}",
-        reply_markup=get_main_keyboard())
+    message_history[user_id].append({
+        "text": message.text,
+        "time": datetime.now()
+    })
+    
+    # Оставляем только последние 10 сообщений
+    if len(message_history[user_id]) > 10:
+        message_history[user_id] = message_history[user_id][-10:]
+    
+    # Проверяем, не спамит ли пользователь
+    recent = [m for m in message_history[user_id] if (datetime.now() - m['time']).seconds < 5]
+    
+    if len(recent) >= 5:
+        # Спам-режим! Удаляем последнее сообщение
+        try:
+            bot.delete_message(chat_id, message.message_id)
+            # Если можно, мутим на 1 минуту
+            if can_moderate(chat_id, bot.get_me().id):
+                bot.restrict_chat_member(chat_id, user_id, until_date=datetime.now() + timedelta(minutes=1))
+        except:
+            pass
 
-# ===== ТОП ГОРОДОВ =====
-@bot.message_handler(func=lambda m: m.text == "👥 Топ городов")
-def top_cities(message):
-    if check_ban(message):
+# ===== ГЛОБАЛЬНЫЕ КОМАНДЫ (только владелец) =====
+@bot.message_handler(commands=['gban'])
+def global_ban(message):
+    if not is_global_admin(message.from_user.id):
+        bot.reply_to(message, "❌ Только владелец бота!")
         return
     
-    # Сортируем по доходу
-    cities = []
-    for uid, data in players_data.items():
-        income = sum(BUILDINGS[bkey]["income"] * data["buildings"].get(bkey, 0) for bkey in BUILDINGS)
-        cities.append((uid, data["name"], data["money"], income, data["game_id"]))
-    
-    cities.sort(key=lambda x: x[2], reverse=True)
-    
-    text = "🏆 Топ 10 городов 🏆\n\n"
-    for i, (uid, name, money, income, gid) in enumerate(cities[:10], 1):
-        text += f"{i}. {name}\n   💰 {money:,}$ | 📈 {income}$/ч | 🆔 {gid}\n"
-    
-    bot.reply_to(message, text, reply_markup=get_main_keyboard())
-
-# ===== ПРОФИЛЬ =====
-@bot.message_handler(func=lambda m: m.text == "👤 Профиль")
-def profile(message):
-    if check_ban(message):
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответьте на сообщение пользователя!")
         return
-    player = get_player(message.from_user.id)
-    clan_name = player.get("clan", "Нет")
-    if clan_name in clans_data:
-        clan_name = clans_data[clan_name]["name"]
     
-    friends_count = len(FRIENDS.get(message.from_user.id, []))
-    
-    text = f"""📇 **Профиль мэра**
-━━━━━━━━━━━━━━━━
-🆔 ID: {player['game_id']}
-📱 TG: {message.from_user.id}
-👤 Имя: {player['name']}
-💰 Баланс: {player['money']:,}$
-📈 Доход: {player['income']}$/ч
-🛣️ Дороги: {player['used_road']}/{player['road']}м
-👥 Население: {player['population']}
-😊 Радость: {player['joy']}
-⚡ Энергия: {player['energy']} / {player['energy_used']}
-👫 Друзей: {friends_count}
-🏰 Клан: {clan_name}
-🎫 Промокодов: {len(player['used_promos'])}
-━━━━━━━━━━━━━━━━"""
-    bot.reply_to(message, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
+    user = message.reply_to_message.from_user
+    # В реальном приложении — записать в глобальную базу банов
+    bot.reply_to(message, f"🌍 {user.first_name} глобально забанен!")
 
-# ===== ОСТАЛЬНЫЕ ФУНКЦИИ (ID, ДРУЗЬЯ, КЛАНЫ, ПРОМОКОДЫ, АДМИНКА) =====
-# Вставьте сюда все старые функции: my_id, find_id, friends_menu, friend_list,
-# friend_requests, accept_friend, decline_friend, friends_back,
-# add_friend, remove_friend, my_friends,
-# clans_menu, clan_list, clan_create, process_clan_create, clan_leave,
-# use_promo, my_promos, promo_stats,
-# admin_help, new_admin, remove_admin, change_game_id, add_money, set_money,
-# reset_player, ban_user, ban_time, unban_user, player_info, delete_clan,
-# stats, broadcast, admin_list
-# 
-# Все они ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ из предыдущего кода!
-# Просто скопируйте их сюда.
+@bot.message_handler(commands=['broadcast'])
+def broadcast(message):
+    if not is_global_admin(message.from_user.id):
+        bot.reply_to(message, "❌ Только владелец бота!")
+        return
+    
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.reply_to(message, "❌ Используй: /broadcast [текст]")
+        return
+    
+    text = args[1]
+    sent = 0
+    for chat_id in list(chats_data.keys()):
+        try:
+            bot.send_message(chat_id, f"📢 {text}")
+            sent += 1
+        except:
+            pass
+    
+    bot.reply_to(message, f"✅ Рассылка отправлена в {sent} чатов!")
 
 # ===== ЗАПУСК =====
-print("🏙️ Бот 'Мой Город' запущен!")
-if __name__ == '__main__':
-    bot.infinity_polling()
+print("🤖 CityGuard запущен!")
+bot.infinity_polling()
