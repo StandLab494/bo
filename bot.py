@@ -9,6 +9,24 @@ ADMIN_IDS = [8558737152]
 START_MONEY = 100
 NEXT_ID = 1000000
 
+# ===== НАСТРОЙКИ ОБНОВЛЕНИЯ =====
+UPDATE_INFO = """
+🔄 **Вышло обновление!**
+
+➕ **Добавлено:**
+• Система друзей
+• Кнопка "Мой ID"
+• Команда /changeid для владельца
+• Админ-команды с банами
+
+🔧 **Изменено:**
+• В топе показывается Telegram ID
+• Обновлён профиль игрока
+• Улучшена админ-панель
+
+Нажмите /update для обновления кнопок!
+"""
+
 # ===== ПРОМОКОДЫ =====
 PROMOCODES = {
     "START100": {"reward": 100, "uses": -1, "description": "100 кристаллов новичку"},
@@ -106,16 +124,7 @@ def add_exp(user_id, amount):
         player["money"] += player["level"] * 50
         bot.send_message(user_id, f"🎉 Поздравляю! Ты достиг {player['level']} уровня! +{player['level']*50} 💎")
 
-# ===== КНОПКИ / START =====
-@bot.message_handler(commands=['start'])
-def start(message):
-    user_id = message.from_user.id
-    if check_ban(message):
-        return
-    player = get_player(user_id)
-    if player["name"] == "":
-        player["name"] = message.from_user.first_name
-
+def get_main_keyboard():
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add(
         telebot.types.KeyboardButton("💰 Баланс"),
@@ -128,10 +137,32 @@ def start(message):
         telebot.types.KeyboardButton("🆔 Мой ID"),
         telebot.types.KeyboardButton("❓ Помощь")
     )
+    return markup
+
+# ===== КНОПКИ / START =====
+@bot.message_handler(commands=['start'])
+def start(message):
+    user_id = message.from_user.id
+    if check_ban(message):
+        return
+    player = get_player(user_id)
+    if player["name"] == "":
+        player["name"] = message.from_user.first_name
 
     bot.send_message(message.chat.id,
         f"🎮 Добро пожаловать в игру, {player['name']}!\nУ тебя {player['money']} 💎 кристаллов.\nТвой уровень: {player['level']}\nТвой ID: {player['game_id']}\n\nИспользуй кнопки ниже!",
-        reply_markup=markup)
+        reply_markup=get_main_keyboard())
+
+# ===== ОБНОВЛЕНИЕ КЛАВИАТУРЫ =====
+@bot.message_handler(commands=['update'])
+def update_keyboard(message):
+    if check_ban(message):
+        return
+    bot.send_message(
+        message.chat.id,
+        "✅ Кнопки обновлены! Используйте их для навигации.",
+        reply_markup=get_main_keyboard()
+    )
 
 # ===== ПОМОЩЬ =====
 @bot.message_handler(func=lambda m: m.text == "❓ Помощь")
@@ -155,6 +186,7 @@ def help_command(message):
 • /promo КОД — активировать промокод
 • /mypromos — список использованных промокодов
 • /help — эта подсказка
+• /update — обновить кнопки меню
 • /addfriend ID — добавить друга
 • /removefriend ID — удалить друга
 • /myfriends — список друзей
@@ -165,7 +197,7 @@ def help_command(message):
 • Выйти из клана — бесплатно
 
 ❓ По вопросам обращаться к администратору!"""
-    bot.reply_to(message, text, parse_mode="Markdown")
+    bot.reply_to(message, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
 # ===== ID =====
 @bot.message_handler(func=lambda m: m.text == "🆔 Мой ID")
@@ -174,7 +206,7 @@ def my_id(message):
     if check_ban(message):
         return
     player = get_player(message.from_user.id)
-    bot.reply_to(message, f"🆔 Твой игровой ID: **{player['game_id']}**\n📱 Твой Telegram ID: **{message.from_user.id}**\nИспользуй игровой ID для добавления в друзья!", parse_mode="Markdown")
+    bot.reply_to(message, f"🆔 Твой игровой ID: **{player['game_id']}**\n📱 Твой Telegram ID: **{message.from_user.id}**\nИспользуй игровой ID для добавления в друзья!", parse_mode="Markdown", reply_markup=get_main_keyboard())
 
 @bot.message_handler(commands=['id'])
 def find_id(message):
@@ -182,21 +214,21 @@ def find_id(message):
         return
     args = message.text.split()
     if len(args) != 2:
-        bot.reply_to(message, "❌ Используй: /id [игровой ID]")
+        bot.reply_to(message, "❌ Используй: /id [игровой ID]", reply_markup=get_main_keyboard())
         return
     try:
-        search_id = int(args[1])
+        search_id = args[1].strip()
         found = None
         for uid, data in players_data.items():
-            if data.get("game_id") == search_id:
+            if str(data.get("game_id")) == str(search_id):
                 found = uid
                 break
         if found:
-            bot.reply_to(message, f"🔍 Игрок с ID {search_id}: {players_data[found]['name']} (TG: {found})")
+            bot.reply_to(message, f"🔍 Игрок с ID {search_id}: {players_data[found]['name']} (TG: {found})", reply_markup=get_main_keyboard())
         else:
-            bot.reply_to(message, "❌ Игрок с таким ID не найден!")
+            bot.reply_to(message, "❌ Игрок с таким ID не найден!", reply_markup=get_main_keyboard())
     except:
-        bot.reply_to(message, "❌ Неверный ID!")
+        bot.reply_to(message, "❌ Неверный ID!", reply_markup=get_main_keyboard())
 
 # ===== ДРУЗЬЯ =====
 @bot.message_handler(func=lambda m: m.text == "👫 Друзья")
@@ -295,37 +327,37 @@ def add_friend(message):
         return
     args = message.text.split()
     if len(args) != 2:
-        bot.reply_to(message, "❌ Используй: /addfriend [игровой ID]")
+        bot.reply_to(message, "❌ Используй: /addfriend [игровой ID]", reply_markup=get_main_keyboard())
         return
     try:
-        friend_game_id = int(args[1])
+        friend_game_id = args[1].strip()
         friend_uid = None
         for uid, data in players_data.items():
-            if data.get("game_id") == friend_game_id:
+            if str(data.get("game_id")) == str(friend_game_id):
                 friend_uid = int(uid)
                 break
         
         if not friend_uid:
-            bot.reply_to(message, "❌ Игрок с таким ID не найден!")
+            bot.reply_to(message, "❌ Игрок с таким ID не найден!", reply_markup=get_main_keyboard())
             return
         if friend_uid == message.from_user.id:
-            bot.reply_to(message, "❌ Нельзя добавить самого себя!")
+            bot.reply_to(message, "❌ Нельзя добавить самого себя!", reply_markup=get_main_keyboard())
             return
         if friend_uid in FRIENDS.get(message.from_user.id, []):
-            bot.reply_to(message, "❌ Этот игрок уже у тебя в друзьях!")
+            bot.reply_to(message, "❌ Этот игрок уже у тебя в друзьях!", reply_markup=get_main_keyboard())
             return
         if message.from_user.id in FRIEND_REQUESTS.get(friend_uid, []):
-            bot.reply_to(message, "❌ Ты уже отправил заявку этому игроку!")
+            bot.reply_to(message, "❌ Ты уже отправил заявку этому игроку!", reply_markup=get_main_keyboard())
             return
         
         if friend_uid not in FRIEND_REQUESTS:
             FRIEND_REQUESTS[friend_uid] = []
         FRIEND_REQUESTS[friend_uid].append(message.from_user.id)
         
-        bot.reply_to(message, f"✅ Заявка в друзья отправлена игроку с ID {friend_game_id}!")
+        bot.reply_to(message, f"✅ Заявка в друзья отправлена игроку с ID {friend_game_id}!", reply_markup=get_main_keyboard())
         bot.send_message(friend_uid, f"📨 Новый запрос в друзья от {players_data[str(message.from_user.id)]['name']} (ID: {players_data[str(message.from_user.id)]['game_id']}, TG: {message.from_user.id})!\nПроверь раздел 👫 Друзья!")
     except:
-        bot.reply_to(message, "❌ Неверный ID!")
+        bot.reply_to(message, "❌ Неверный ID!", reply_markup=get_main_keyboard())
 
 @bot.message_handler(commands=['removefriend'])
 def remove_friend(message):
@@ -333,31 +365,31 @@ def remove_friend(message):
         return
     args = message.text.split()
     if len(args) != 2:
-        bot.reply_to(message, "❌ Используй: /removefriend [игровой ID]")
+        bot.reply_to(message, "❌ Используй: /removefriend [игровой ID]", reply_markup=get_main_keyboard())
         return
     try:
-        friend_game_id = int(args[1])
+        friend_game_id = args[1].strip()
         friend_uid = None
         for uid, data in players_data.items():
-            if data.get("game_id") == friend_game_id:
+            if str(data.get("game_id")) == str(friend_game_id):
                 friend_uid = int(uid)
                 break
         
         if not friend_uid:
-            bot.reply_to(message, "❌ Игрок с таким ID не найден!")
+            bot.reply_to(message, "❌ Игрок с таким ID не найден!", reply_markup=get_main_keyboard())
             return
         if message.from_user.id in FRIENDS:
             if friend_uid in FRIENDS[message.from_user.id]:
                 FRIENDS[message.from_user.id].remove(friend_uid)
                 if friend_uid in FRIENDS:
                     FRIENDS[friend_uid].remove(message.from_user.id)
-                bot.reply_to(message, f"✅ Игрок с ID {friend_game_id} удалён из друзей!")
+                bot.reply_to(message, f"✅ Игрок с ID {friend_game_id} удалён из друзей!", reply_markup=get_main_keyboard())
             else:
-                bot.reply_to(message, "❌ Этот игрок не у тебя в друзьях!")
+                bot.reply_to(message, "❌ Этот игрок не у тебя в друзьях!", reply_markup=get_main_keyboard())
         else:
-            bot.reply_to(message, "❌ У тебя нет друзей!")
+            bot.reply_to(message, "❌ У тебя нет друзей!", reply_markup=get_main_keyboard())
     except:
-        bot.reply_to(message, "❌ Неверный ID!")
+        bot.reply_to(message, "❌ Неверный ID!", reply_markup=get_main_keyboard())
 
 @bot.message_handler(commands=['myfriends'])
 def my_friends(message):
@@ -365,13 +397,13 @@ def my_friends(message):
         return
     friends = FRIENDS.get(message.from_user.id, [])
     if not friends:
-        bot.reply_to(message, "😔 У тебя пока нет друзей.")
+        bot.reply_to(message, "😔 У тебя пока нет друзей.", reply_markup=get_main_keyboard())
     else:
         text = "📋 Твои друзья:\n\n"
         for fid in friends:
             if str(fid) in players_data:
                 text += f"• {players_data[str(fid)]['name']} (ID: {players_data[str(fid)]['game_id']}, TG: {fid}, Ур. {players_data[str(fid)]['level']})\n"
-        bot.reply_to(message, text)
+        bot.reply_to(message, text, reply_markup=get_main_keyboard())
 
 # ===== БАЛАНС =====
 @bot.message_handler(func=lambda m: m.text == "💰 Баланс")
@@ -379,7 +411,7 @@ def balance(message):
     if check_ban(message):
         return
     player = get_player(message.from_user.id)
-    bot.reply_to(message, f"У тебя {player['money']} 💎 кристаллов\nУровень: {player['level']}")
+    bot.reply_to(message, f"У тебя {player['money']} 💎 кристаллов\nУровень: {player['level']}", reply_markup=get_main_keyboard())
 
 # ===== ЕЖЕДНЕВНЫЙ БОНУС =====
 @bot.message_handler(func=lambda m: m.text == "🎁 Ежедневный бонус")
@@ -390,13 +422,13 @@ def daily(message):
     player = get_player(user_id)
     today = datetime.now().strftime("%Y-%m-%d")
     if player["last_daily"] == today:
-        bot.reply_to(message, "❌ Ты уже получал бонус сегодня! Приходи завтра.")
+        bot.reply_to(message, "❌ Ты уже получал бонус сегодня! Приходи завтра.", reply_markup=get_main_keyboard())
         return
     bonus = random.randint(50, 200)
     player["money"] += bonus
     player["last_daily"] = today
     add_exp(user_id, 10)
-    bot.reply_to(message, f"🎉 Ты получил {bonus} 💎 кристаллов!\nТеперь у тебя {player['money']} 💎")
+    bot.reply_to(message, f"🎉 Ты получил {bonus} 💎 кристаллов!\nТеперь у тебя {player['money']} 💎", reply_markup=get_main_keyboard())
 
 # ===== ОГРАБЛЕНИЕ =====
 @bot.message_handler(func=lambda m: m.text == "⚔️ Ограбить")
@@ -407,23 +439,23 @@ def rob(message):
     player = get_player(user_id)
     other_players = [pid for pid in players_data if pid != str(user_id)]
     if not other_players:
-        bot.reply_to(message, "❌ Нет других игроков для ограбления!")
+        bot.reply_to(message, "❌ Нет других игроков для ограбления!", reply_markup=get_main_keyboard())
         return
     victim_id = random.choice(other_players)
     victim = players_data[victim_id]
     if player["money"] < 50:
-        bot.reply_to(message, "❌ Нужно минимум 50 кристаллов для ограбления!")
+        bot.reply_to(message, "❌ Нужно минимум 50 кристаллов для ограбления!", reply_markup=get_main_keyboard())
         return
     if random.random() < 0.6:
         stolen = min(random.randint(20, 100), victim["money"])
         victim["money"] -= stolen
         player["money"] += stolen
         add_exp(user_id, 10)
-        bot.reply_to(message, f"✅ Успех! Ты украл {stolen} 💎 у {victim['name']}!")
+        bot.reply_to(message, f"✅ Успех! Ты украл {stolen} 💎 у {victim['name']}!", reply_markup=get_main_keyboard())
     else:
         penalty = random.randint(20, 80)
         player["money"] -= penalty
-        bot.reply_to(message, f"❌ Провал! Тебя поймали и оштрафовали на {penalty} 💎")
+        bot.reply_to(message, f"❌ Провал! Тебя поймали и оштрафовали на {penalty} 💎", reply_markup=get_main_keyboard())
 
 # ===== ТОП ИГРОКОВ =====
 @bot.message_handler(func=lambda m: m.text == "👥 Топ игроков")
@@ -435,7 +467,7 @@ def top(message):
     text = "🏆 Топ 10 богачей 🏆\n\n"
     for i, (uid, name, money, gid) in enumerate(players[:10], 1):
         text += f"{i}. {name}\n   💎 {money} | 🆔 ID: {gid} | 📱 TG: {uid}\n"
-    bot.reply_to(message, text)
+    bot.reply_to(message, text, reply_markup=get_main_keyboard())
 
 # ===== ПРОФИЛЬ =====
 @bot.message_handler(func=lambda m: m.text == "👤 Мой профиль")
@@ -462,7 +494,7 @@ def profile(message):
 🏰 Клан: {clan_name}
 🎫 Промокодов: {len(player['used_promos'])}
 ━━━━━━━━━━━━━━━━"""
-    bot.reply_to(message, text, parse_mode="Markdown")
+    bot.reply_to(message, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
 # ===== ПРОМОКОДЫ =====
 @bot.message_handler(commands=['promo'])
@@ -473,24 +505,24 @@ def use_promo(message):
     player = get_player(user_id)
     args = message.text.split()
     if len(args) != 2:
-        bot.reply_to(message, "❌ Используй: /promo КОД")
+        bot.reply_to(message, "❌ Используй: /promo КОД", reply_markup=get_main_keyboard())
         return
     code = args[1].upper()
     if code not in PROMOCODES:
-        bot.reply_to(message, "❌ Такого промокода нет!")
+        bot.reply_to(message, "❌ Такого промокода нет!", reply_markup=get_main_keyboard())
         return
     if code in player["used_promos"]:
-        bot.reply_to(message, "❌ Ты уже использовал этот промокод!")
+        bot.reply_to(message, "❌ Ты уже использовал этот промокод!", reply_markup=get_main_keyboard())
         return
     promo = PROMOCODES[code]
     if promo["uses"] != -1:
         total = sum(1 for p in players_data.values() if code in p["used_promos"])
         if total >= promo["uses"]:
-            bot.reply_to(message, f"❌ Промокод {code} закончился!")
+            bot.reply_to(message, f"❌ Промокод {code} закончился!", reply_markup=get_main_keyboard())
             return
     player["money"] += promo["reward"]
     player["used_promos"].append(code)
-    bot.reply_to(message, f"🎉 Промокод активирован! +{promo['reward']} 💎\nТеперь у тебя {player['money']} 💎")
+    bot.reply_to(message, f"🎉 Промокод активирован! +{promo['reward']} 💎\nТеперь у тебя {player['money']} 💎", reply_markup=get_main_keyboard())
 
 @bot.message_handler(commands=['mypromos'])
 def my_promos(message):
@@ -498,10 +530,10 @@ def my_promos(message):
         return
     player = get_player(message.from_user.id)
     if not player["used_promos"]:
-        bot.reply_to(message, "📭 Ты ещё не использовал промокоды.")
+        bot.reply_to(message, "📭 Ты ещё не использовал промокоды.", reply_markup=get_main_keyboard())
     else:
         text = "🎫 Твои промокоды:\n" + "\n".join(f"• {c}" for c in player["used_promos"])
-        bot.reply_to(message, text)
+        bot.reply_to(message, text, reply_markup=get_main_keyboard())
 
 @bot.message_handler(commands=['promostats'])
 def promo_stats(message):
@@ -590,26 +622,43 @@ def change_game_id(message):
         bot.reply_to(message, "❌ Только главный владелец может менять ID!")
         return
     try:
-        parts = message.text.split()
-        if len(parts) != 3:
-            bot.reply_to(message, "❌ Используй: /changeid [телеграм ID игрока] [новый игровой ID]")
+        parts = message.text.split(maxsplit=2)
+        if len(parts) < 3:
+            bot.reply_to(message, "❌ Используй: /changeid [телеграм ID] [новый игровой ID]\nНапример: /changeid 8635476302 DEV_01")
             return
-        tg_id = int(parts[1])
-        new_game_id = int(parts[2])
         
-        player = get_player(tg_id)
+        tg_id = parts[1].strip()
+        new_game_id = parts[2].strip()
+        
+        try:
+            tg_id_int = int(tg_id)
+        except:
+            bot.reply_to(message, "❌ Телеграм ID должен быть числом!")
+            return
+        
+        if str(tg_id_int) not in players_data:
+            bot.reply_to(message, f"❌ Игрок с Telegram ID {tg_id_int} не найден в базе!")
+            return
+        
+        player = players_data[str(tg_id_int)]
         old_id = player["game_id"]
         
         for uid, data in players_data.items():
-            if uid != str(tg_id) and data.get("game_id") == new_game_id:
+            if uid != str(tg_id_int) and str(data.get("game_id")) == str(new_game_id):
                 bot.reply_to(message, f"❌ Игровой ID {new_game_id} уже занят!")
                 return
         
         player["game_id"] = new_game_id
-        bot.reply_to(message, f"✅ Игровой ID игрока {tg_id} изменён!\nСтарый ID: {old_id} → Новый ID: {new_game_id}")
-        bot.send_message(tg_id, f"🔔 Администратор изменил твой игровой ID!\nСтарый ID: {old_id} → Новый ID: {new_game_id}")
-    except:
-        bot.reply_to(message, "❌ Используй: /changeid [телеграм ID игрока] [новый игровой ID]")
+        
+        bot.reply_to(message, f"✅ Игровой ID игрока {tg_id_int} изменён!\nСтарый ID: {old_id} → Новый ID: {new_game_id}")
+        
+        try:
+            bot.send_message(tg_id_int, f"🔔 Администратор изменил твой игровой ID!\nСтарый ID: {old_id} → Новый ID: {new_game_id}\n\nНажми /start или /update для обновления меню.")
+        except:
+            pass
+            
+    except Exception as e:
+        bot.reply_to(message, f"❌ Ошибка: {e}\nИспользуй: /changeid [телеграм ID] [новый игровой ID]")
 
 @bot.message_handler(commands=['addmoney'])
 def add_money(message):
@@ -887,5 +936,26 @@ def clan_leave(call):
 
 # ===== ЗАПУСК =====
 print("🎮 Бот запущен!")
+
+def send_update_notification():
+    sent = 0
+    for uid in list(players_data.keys()):
+        try:
+            if not is_banned(int(uid)):
+                bot.send_message(
+                    int(uid),
+                    UPDATE_INFO,
+                    parse_mode="Markdown"
+                )
+                sent += 1
+        except:
+            pass
+    print(f"📢 Уведомление об обновлении отправлено {sent} игрокам")
+
 if __name__ == '__main__':
+    try:
+        send_update_notification()
+    except Exception as e:
+        print(f"Ошибка при рассылке: {e}")
+    
     bot.infinity_polling()
