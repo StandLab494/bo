@@ -2,7 +2,6 @@ import telebot
 import json
 import os
 import random
-import time
 from datetime import datetime, timedelta
 
 # ===== НАСТРОЙКИ =====
@@ -22,11 +21,6 @@ PROMOCODES = {
 bot = telebot.TeleBot(TOKEN)
 DATA_FILE = "players.json"
 CLANS_FILE = "clans.json"
-QUESTS_FILE = "quests.json"
-
-# ===== ЗАГЛУШКА ДЛЯ SOON =====
-def soon_reply(message):
-    bot.reply_to(message, "⏳ Эта функция скоро появится... (Soon)")
 
 # ===== ЗАГРУЗКА/СОХРАНЕНИЕ =====
 def load_data():
@@ -49,16 +43,6 @@ def save_clans(data):
     with open(CLANS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
-def load_quests():
-    if os.path.exists(QUESTS_FILE):
-        with open(QUESTS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def save_quests(data):
-    with open(QUESTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
 def get_player(user_id):
     data = load_data()
     user_id = str(user_id)
@@ -66,15 +50,11 @@ def get_player(user_id):
         data[user_id] = {
             "name": "",
             "money": START_MONEY,
-            "items": [],
             "last_daily": None,
-            "last_work": None,
             "used_promos": [],
             "clan": None,
             "level": 1,
-            "exp": 0,
-            "quests_completed": 0,
-            "last_quest_reset": None
+            "exp": 0
         }
         save_data(data)
     return data[user_id], data
@@ -98,30 +78,26 @@ def add_exp(user_id, amount):
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
-    player, _ = get_player(user_id)
-    
+    player, all_data = get_player(user_id)
+
     if player["name"] == "":
         player["name"] = message.from_user.first_name
-        save_player(user_id, player, _)
-    
+        save_player(user_id, player, all_data)
+
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     btn1 = telebot.types.KeyboardButton("💰 Баланс")
     btn2 = telebot.types.KeyboardButton("🎁 Ежедневный бонус")
-    btn3 = telebot.types.KeyboardButton("🛒 Магазин")
-    btn4 = telebot.types.KeyboardButton("👥 Топ игроков")
-    btn5 = telebot.types.KeyboardButton("💼 Работа")
-    btn6 = telebot.types.KeyboardButton("⚔️ Ограбить")
-    btn7 = telebot.types.KeyboardButton("👤 Мой профиль")
-    btn8 = telebot.types.KeyboardButton("🏰 Кланы")
-    btn9 = telebot.types.KeyboardButton("📜 Квесты")
-    btn10 = telebot.types.KeyboardButton("🎰 Казино")
-    markup.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7, btn8, btn9, btn10)
-    
-    bot.send_message(message.chat.id, 
+    btn3 = telebot.types.KeyboardButton("👥 Топ игроков")
+    btn4 = telebot.types.KeyboardButton("⚔️ Ограбить")
+    btn5 = telebot.types.KeyboardButton("👤 Мой профиль")
+    btn6 = telebot.types.KeyboardButton("🏰 Кланы")
+    markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
+
+    bot.send_message(message.chat.id,
         f"🎮 Добро пожаловать в игру, {player['name']}!\nУ тебя {player['money']} 💎 кристаллов.\nТвой уровень: {player['level']}\n\nИспользуй кнопки ниже!",
         reply_markup=markup)
 
-# ===== СТАРЫЕ ФУНКЦИИ (Баланс, бонус, работа, грабёж, магазин, топ) =====
+# ===== ОСНОВНЫЕ ФУНКЦИИ =====
 @bot.message_handler(func=lambda message: message.text == "💰 Баланс")
 def balance(message):
     user_id = message.from_user.id
@@ -142,26 +118,6 @@ def daily(message):
     save_player(user_id, player, all_data)
     add_exp(user_id, 10)
     bot.reply_to(message, f"🎉 Ты получил {bonus} 💎 кристаллов!\nТеперь у тебя {player['money']} 💎")
-
-@bot.message_handler(func=lambda message: message.text == "💼 Работа")
-def work(message):
-    user_id = message.from_user.id
-    player, all_data = get_player(user_id)
-    last_work = player.get("last_work")
-    if last_work:
-        last_time = datetime.fromisoformat(last_work)
-        if datetime.now() - last_time < timedelta(minutes=30):
-            remaining = int(30 - (datetime.now() - last_time).seconds / 60)
-            bot.reply_to(message, f"⌛ Ты устал! Отдохни {remaining} минут.")
-            return
-    earnings = random.randint(30, 150)
-    player["money"] += earnings
-    player["last_work"] = datetime.now().isoformat()
-    save_player(user_id, player, all_data)
-    add_exp(user_id, 5)
-    jobs = ["код писал", "кирпичи таскал", "игроков учил", "баги фиксил", "кофе варил"]
-    job = random.choice(jobs)
-    bot.reply_to(message, f"💪 Ты {job} и заработал {earnings} 💎!\nТеперь у тебя {player['money']} 💎")
 
 @bot.message_handler(func=lambda message: message.text == "⚔️ Ограбить")
 def rob(message):
@@ -192,48 +148,6 @@ def rob(message):
         save_player(user_id, player, all_data)
         bot.reply_to(message, f"❌ Провал! Тебя поймали и оштрафовали на {penalty} 💎")
 
-@bot.message_handler(func=lambda message: message.text == "🛒 Магазин")
-def shop(message):
-    markup = telebot.types.InlineKeyboardMarkup()
-    btn1 = telebot.types.InlineKeyboardButton("🍕 Пицца (50💎)", callback_data="buy_pizza")
-    btn2 = telebot.types.InlineKeyboardButton("🎣 Удочка (150💎)", callback_data="buy_rod")
-    btn3 = telebot.types.InlineKeyboardButton("🐉 Дракон (500💎)", callback_data="buy_dragon")
-    btn4 = telebot.types.InlineKeyboardButton("📦 Список покупок", callback_data="my_items")
-    markup.add(btn1, btn2, btn3, btn4)
-    bot.send_message(message.chat.id, "🛍️ Добро пожаловать в магазин!", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
-def buy_item(call):
-    user_id = call.from_user.id
-    player, all_data = get_player(user_id)
-    items = {
-        "pizza": {"name": "🍕 Пицца", "price": 50},
-        "rod": {"name": "🎣 Удочка", "price": 150},
-        "dragon": {"name": "🐉 Дракон", "price": 500}
-    }
-    item_key = call.data.split("_")[1]
-    item = items[item_key]
-    if player["money"] >= item["price"]:
-        player["money"] -= item["price"]
-        player["items"].append(item["name"])
-        save_player(user_id, player, all_data)
-        bot.answer_callback_query(call.id, f"✅ Куплено: {item['name']}!")
-        bot.edit_message_text(f"🎉 Ты купил {item['name']}!\nОсталось {player['money']} 💎", 
-                               call.message.chat.id, call.message.message_id)
-    else:
-        bot.answer_callback_query(call.id, "❌ Не хватает кристаллов!")
-
-@bot.callback_query_handler(func=lambda call: call.data == "my_items")
-def my_items(call):
-    user_id = call.from_user.id
-    player, _ = get_player(user_id)
-    if not player["items"]:
-        text = "📦 У тебя пока нет предметов. Купи что-нибудь в магазине!"
-    else:
-        text = "📦 Твои предметы:\n" + "\n".join(f"• {item}" for item in player["items"])
-    bot.answer_callback_query(call.id)
-    bot.send_message(call.message.chat.id, text)
-
 @bot.message_handler(func=lambda message: message.text == "👥 Топ игроков")
 def top(message):
     all_data = load_data()
@@ -246,6 +160,26 @@ def top(message):
     for i, (name, money) in enumerate(top10, 1):
         text += f"{i}. {name} — {money} 💎\n"
     bot.reply_to(message, text)
+
+@bot.message_handler(func=lambda message: message.text == "👤 Мой профиль")
+def profile(message):
+    user_id = message.from_user.id
+    player, _ = get_player(user_id)
+    clan_name = player.get("clan", "Нет клана")
+    if clan_name:
+        clans = load_clans()
+        if clan_name in clans:
+            clan_name = clans[clan_name]["name"]
+    text = f"""📇 **Профиль игрока**
+━━━━━━━━━━━━━━━━
+👤 Имя: {player['name']}
+💰 Кристаллы: {player['money']}
+⭐ Уровень: {player['level']}
+📊 Опыт: {player['exp']}/{player['level']*100}
+🏰 Клан: {clan_name if clan_name else 'Нет'}
+🎫 Промокодов: {len(player['used_promos'])}
+━━━━━━━━━━━━━━━━"""
+    bot.reply_to(message, text, parse_mode="Markdown")
 
 # ===== ПРОМОКОДЫ =====
 @bot.message_handler(commands=['promo'])
@@ -308,30 +242,7 @@ def promo_stats(message):
         text += f"{code}: {count}/{limit} использований\n"
     bot.reply_to(message, text)
 
-# ===== НОВЫЕ ФУНКЦИИ =====
-# 1. ПРОФИЛЬ (КАРТОЧКА)
-@bot.message_handler(func=lambda message: message.text == "👤 Мой профиль")
-def profile(message):
-    user_id = message.from_user.id
-    player, _ = get_player(user_id)
-    clan_name = player.get("clan", "Нет клана")
-    if clan_name:
-        clans = load_clans()
-        if clan_name in clans:
-            clan_name = clans[clan_name]["name"]
-    text = f"""📇 **Профиль игрока**
-━━━━━━━━━━━━━━━━
-👤 Имя: {player['name']}
-💰 Кристаллы: {player['money']}
-⭐ Уровень: {player['level']}
-📊 Опыт: {player['exp']}/{player['level']*100}
-🎒 Предметов: {len(player['items'])}
-🏰 Клан: {clan_name if clan_name else 'Нет'}
-🎫 Промокодов: {len(player['used_promos'])}
-━━━━━━━━━━━━━━━━"""
-    bot.reply_to(message, text, parse_mode="Markdown")
-
-# 2. КЛАНОВЫ
+# ===== КЛАНЫ =====
 @bot.message_handler(func=lambda message: message.text == "🏰 Кланы")
 def clans_menu(message):
     markup = telebot.types.InlineKeyboardMarkup()
@@ -360,7 +271,7 @@ def clan_create(call):
 
 def process_clan_create(message):
     user_id = message.from_user.id
-    player, _ = get_player(user_id)
+    player, all_data = get_player(user_id)
     clan_name = message.text.strip()[:20]
     clans = load_clans()
     if clan_name in clans:
@@ -371,7 +282,7 @@ def process_clan_create(message):
         return
     player["money"] -= 500
     player["clan"] = clan_name
-    save_player(user_id, player, _)
+    save_player(user_id, player, all_data)
     clans[clan_name] = {
         "name": clan_name,
         "owner": user_id,
@@ -384,7 +295,7 @@ def process_clan_create(message):
 @bot.callback_query_handler(func=lambda call: call.data == "clan_leave")
 def clan_leave(call):
     user_id = call.from_user.id
-    player, _ = get_player(user_id)
+    player, all_data = get_player(user_id)
     clan_name = player.get("clan")
     if not clan_name:
         bot.answer_callback_query(call.id, "Ты не состоишь в клане!")
@@ -397,165 +308,11 @@ def clan_leave(call):
         else:
             save_clans(clans)
     player["clan"] = None
-    save_player(user_id, player, _)
+    save_player(user_id, player, all_data)
     bot.answer_callback_query(call.id, "Ты покинул клан!")
     bot.edit_message_text("🚪 Ты вышел из клана.", call.message.chat.id, call.message.message_id)
 
-# 3. КВЕСТЫ
-@bot.message_handler(func=lambda message: message.text == "📜 Квесты")
-def quests_menu(message):
-    user_id = message.from_user.id
-    player, _ = get_player(user_id)
-    today = datetime.now().strftime("%Y-%m-%d")
-    quests = load_quests()
-    if user_id not in quests or quests[user_id].get("date") != today:
-        quests[user_id] = {
-            "date": today,
-            "quests": [
-                {"name": "💰 Заработай 200 монет", "progress": 0, "target": 200, "reward": 100, "done": False},
-                {"name": "💼 Сработай 3 раза", "progress": 0, "target": 3, "reward": 150, "done": False},
-                {"name": "⚔️ Ограбь 2 раза", "progress": 0, "target": 2, "reward": 120, "done": False}
-            ]
-        }
-        save_quests(quests)
-    user_quests = quests[user_id]["quests"]
-    text = "📜 Ежедневные квесты:\n\n"
-    for i, q in enumerate(user_quests, 1):
-        status = "✅" if q["done"] else f"{q['progress']}/{q['target']}"
-        text += f"{i}. {q['name']}\n   {status} | Награда: {q['reward']}💎\n\n"
-    markup = telebot.types.InlineKeyboardMarkup()
-    for i in range(len(user_quests)):
-        if not user_quests[i]["done"]:
-            btn = telebot.types.InlineKeyboardButton(f"Забрать награду {i+1}", callback_data=f"quest_{i}")
-            markup.add(btn)
-    bot.send_message(message.chat.id, text, reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("quest_"))
-def claim_quest(call):
-    user_id = call.from_user.id
-    quests = load_quests()
-    today = datetime.now().strftime("%Y-%m-%d")
-    if user_id not in quests or quests[user_id].get("date") != today:
-        bot.answer_callback_query(call.id, "Квесты уже обновились!")
-        return
-    idx = int(call.data.split("_")[1])
-    q = quests[user_id]["quests"][idx]
-    if q["done"]:
-        bot.answer_callback_query(call.id, "Ты уже получил награду!")
-        return
-    if q["progress"] >= q["target"]:
-        q["done"] = True
-        player, all_data = get_player(user_id)
-        player["money"] += q["reward"]
-        save_player(user_id, player, all_data)
-        save_quests(quests)
-        bot.answer_callback_query(call.id, f"✅ Получено {q['reward']} 💎!")
-        bot.edit_message_text("Награда зачислена!", call.message.chat.id, call.message.message_id)
-    else:
-        bot.answer_callback_query(call.id, "Квест ещё не выполнен!")
-
-# Обновление прогресса квестов
-def update_quest_progress(user_id, quest_name, amount=1):
-    quests = load_quests()
-    today = datetime.now().strftime("%Y-%m-%d")
-    if user_id not in quests or quests[user_id].get("date") != today:
-        return
-    for q in quests[user_id]["quests"]:
-        if quest_name in q["name"] and not q["done"]:
-            q["progress"] += amount
-    save_quests(quests)
-
-# ВСТАВИТЬ В ФУНКЦИИ work и rob:
-# work: update_quest_progress(user_id, "Сработай", 1)
-# rob: update_quest_progress(user_id, "Ограбь", 1)
-# daily: update_quest_progress(user_id, "Заработай", bonus) - если хотите
-
-# 4. КАЗИНО
-@bot.message_handler(func=lambda message: message.text == "🎰 Казино")
-def casino(message):
-    markup = telebot.types.InlineKeyboardMarkup()
-    btn1 = telebot.types.InlineKeyboardButton("🎲 Угадай число (1-6)", callback_data="casino_number")
-    btn2 = telebot.types.InlineKeyboardButton("🎨 Ставка на цвет", callback_data="casino_color")
-    markup.add(btn1, btn2)
-    bot.send_message(message.chat.id, "🎰 Выбери игру:", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data == "casino_number")
-def casino_number(call):
-    msg = bot.send_message(call.message.chat.id, "Введи число от 1 до 6 и сумму ставки:\nПример: `3 100`", parse_mode="Markdown")
-    bot.register_next_step_handler(msg, process_casino_number)
-
-def process_casino_number(message):
-    try:
-        guess, bet = map(int, message.text.split())
-        if guess < 1 or guess > 6 or bet < 10:
-            bot.reply_to(message, "❌ Число от 1 до 6, ставка минимум 10 💎")
-            return
-        user_id = message.from_user.id
-        player, all_data = get_player(user_id)
-        if bet > player["money"]:
-            bot.reply_to(message, "❌ Не хватает кристаллов!")
-            return
-        result = random.randint(1, 6)
-        player["money"] -= bet
-        if guess == result:
-            win = bet * 3
-            player["money"] += win
-            bot.reply_to(message, f"🎉 Выпало {result}! Ты угадал! +{win} 💎")
-            add_exp(user_id, 15)
-        else:
-            bot.reply_to(message, f"😢 Выпало {result}. Ты проиграл {bet} 💎")
-        save_player(user_id, player, all_data)
-    except:
-        bot.reply_to(message, "❌ Неправильный формат! Пример: `3 100`")
-
-@bot.callback_query_handler(func=lambda call: call.data == "casino_color")
-def casino_color(call):
-    markup = telebot.types.InlineKeyboardMarkup()
-    btn1 = telebot.types.InlineKeyboardButton("🔴 Красное", callback_data="color_red")
-    btn2 = telebot.types.InlineKeyboardButton("⚫ Чёрное", callback_data="color_black")
-    markup.add(btn1, btn2)
-    msg = bot.send_message(call.message.chat.id, "Выбери цвет и напиши сумму ставки (числом):", reply_markup=markup)
-    bot.register_next_step_handler(msg, process_casino_color)
-
-def process_casino_color(message):
-    try:
-        bet = int(message.text)
-        if bet < 10:
-            bot.reply_to(message, "❌ Ставка минимум 10 💎")
-            return
-        user_id = message.from_user.id
-        player, all_data = get_player(user_id)
-        if bet > player["money"]:
-            bot.reply_to(message, "❌ Не хватает кристаллов!")
-            return
-        # Ждём цвет
-        bot.register_next_step_handler(message, lambda m: finish_color_bet(m, bet))
-    except:
-        bot.reply_to(message, "❌ Введи число (сумму ставки)")
-
-def finish_color_bet(message, bet):
-    color = message.text.lower()
-    if color not in ["красное", "чёрное", "красный", "черный"]:
-        bot.reply_to(message, "❌ Напиши 'Красное' или 'Чёрное'")
-        return
-    user_id = message.from_user.id
-    player, all_data = get_player(user_id)
-    result = random.choice(["красное", "чёрное"])
-    player["money"] -= bet
-    if (color in ["красное", "красный"] and result == "красное") or (color in ["чёрное", "черный"] and result == "чёрное"):
-        win = bet * 2
-        player["money"] += win
-        bot.reply_to(message, f"🎉 Выпало {result}! Ты выиграл {win} 💎")
-        add_exp(user_id, 10)
-    else:
-        bot.reply_to(message, f"😢 Выпало {result}. Ты проиграл {bet} 💎")
-    save_player(user_id, player, all_data)
-
-# ===== SOON =====
-@bot.message_handler(func=lambda message: message.text in ["🐉 Питомцы", "⛏️ Шахта", "💰 Инвестиции", "🔫 Криминал", "👑 Гильдии", "🤝 Передать валюту", "🎁 Рефералы", "🏅 Достижения", "📈 Бизнес"])
-def soon(message):
-    soon_reply(message)
-
 # ===== ЗАПУСК =====
-print("🎮 Игровой бот запущен с новыми функциями!")
-bot.infinity_polling()
+print("🎮 Игровой бот запущен!")
+if __name__ == '__main__':
+    bot.infinity_polling()
