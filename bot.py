@@ -29,7 +29,8 @@ user_profiles = {}
 vip_data = {}
 economy = {}
 temp_data = {}
-clans_data = {}  # {clan_name: {owner, members, bank, created}}
+clans_data = {}
+captcha_data = {}
 start_time = datetime.now()
 
 VIP_LEVELS = {
@@ -82,7 +83,8 @@ def save_all_data():
         "vip_data": vip_data,
         "economy": economy,
         "temp_data": temp_data_serializable(),
-        "clans_data": clans_data
+        "clans_data": clans_data,
+        "captcha_data": captcha_data
     }
     
     with open(DB_FILE, "w", encoding="utf-8") as f:
@@ -103,7 +105,7 @@ def temp_data_serializable():
     return result
 
 def load_all_data():
-    global staff_data, warns_data, mutes_data, bans_data, chats_data, daily_stats, user_profiles, vip_data, economy, temp_data, clans_data
+    global staff_data, warns_data, mutes_data, bans_data, chats_data, daily_stats, user_profiles, vip_data, economy, temp_data, clans_data, captcha_data
     
     if not os.path.exists(DB_FILE):
         return
@@ -129,6 +131,7 @@ def load_all_data():
         vip_data = data.get("vip_data", {})
         economy = data.get("economy", {})
         clans_data = data.get("clans_data", {})
+        captcha_data = {int(cid): users for cid, users in data.get("captcha_data", {}).items()}
         
         temp_data = {}
         for uid, items in data.get("temp_data", {}).items():
@@ -245,7 +248,6 @@ def get_profile(user_id):
     return user_profiles[uid]
 
 def get_user_name(uid, cid=None):
-    """Получить имя пользователя безопасно"""
     profile = get_profile(uid)
     if profile and profile.get('nick'):
         return profile['nick']
@@ -276,6 +278,13 @@ def count_message(message):
     daily_stats[cid][today]["users"][uid] = daily_stats[cid][today]["users"].get(uid, 0) + 1
     add_bricks(uid, 1)
 
+# ===== КЛАНЫ =====
+def get_user_clan(user_id):
+    for name, data in clans_data.items():
+        if user_id in data.get("members", []):
+            return name
+    return None
+
 # ===== ЛС КНОПКИ =====
 def get_private_keyboard():
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -288,8 +297,36 @@ def get_private_keyboard():
     )
     return markup
 
+# ===== START С КАПЧЕЙ =====
 @bot.message_handler(commands=['start'])
 def start(message):
+    user_id = message.from_user.id
+    
+    # Проверяем капчу
+    for cid, users in list(captcha_data.items()):
+        if user_id in users:
+            try:
+                bot.restrict_chat_member(
+                    cid, user_id,
+                    can_send_messages=True,
+                    can_send_photos=True,
+                    can_send_videos=True,
+                    can_send_voices=True,
+                    can_send_audios=True,
+                    can_send_documents=True,
+                    can_send_stickers=True,
+                    can_send_animations=True,
+                    can_send_games=True,
+                    can_send_polls=True
+                )
+                captcha_data[cid].remove(user_id)
+                if not captcha_data[cid]:
+                    del captcha_data[cid]
+                bot.send_message(user_id, "✅ Капча пройдена! Можешь общаться в чате.")
+                save_all_data()
+            except:
+                pass
+    
     if message.chat.type == 'private':
         bot.send_message(message.chat.id,
             "🧱 **Wall — Чат-менеджер**\n\n"
@@ -456,13 +493,76 @@ def pay_cmd(message):
     save_all_data()
     bot.reply_to(message, f"✅ Переведено {amount} 🧱 пользователю {target}")
 
-# ===== КЛАНЫ =====
-def get_user_clan(user_id):
-    for name, data in clans_data.items():
-        if user_id in data.get("members", []):
-            return name
-    return None
+# ===== ПРОФИЛЬ =====
+@bot.message_handler(commands=['profile'])
+def profile_cmd(message):
+    if message.reply_to_message:
+        u = message.reply_to_message.from_user
+    else:
+        u = message.from_user
+    
+    uid = u.id
+    cid = message.chat.id
+    profile = get_profile(uid)
+    vip = get_vip(uid)
+    clan = get_user_clan(uid)
+    rank = get_rank(cid, uid)
+    
+    total_msgs = 0
+    for chat_id, days in daily_stats.items():
+        for day, data in days.items():
+            total_msgs += data.get("users", {}).get(uid, 0)
+    
+    reg_date = "Неизвестно"
+    if str(uid) in economy:
+        eco = economy[str(uid)]
+        dates = []
+        if eco.get("last_work"):
+            dates.append(eco["last_work"][:10])
+        if eco.get("last_daily"):
+            dates.append(eco["last_daily"])
+        if dates:
+            reg_date = sorted(dates)[0]
+    
+    vip_text = f"{VIP_LEVELS[vip['level']]['color']} {VIP_LEVELS[vip['level']]['name']}" if vip['level'] > 0 else "Нет"
+    rank_names = {0: "Участник", 1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца", 4: "Владелец"}
+    
+    text = f"""📇 **Профиль игрока**
+━━━━━━━━━━━━━━━━
+👤 Имя: {profile['nick'] or u.first_name}
+🆔 ID: `{uid}`
+💎 VIP: {vip_text}
+🏰 Клан: {clan if clan else 'Нет'}
+🎖 Ранг в чате: {rank_names[rank]}
+📅 В боте с: {reg_date}
+💬 Сообщений: {total_msgs}
+━━━━━━━━━━━━━━━━"""
+    
+    bot.reply_to(message, text, parse_mode="Markdown")
 
+@bot.message_handler(commands=['nick'])
+def nick_cmd(message):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.reply_to(message, "❌ /nick [новое имя]")
+        return
+    profile = get_profile(message.from_user.id)
+    profile['nick'] = args[1]
+    save_all_data()
+    bot.reply_to(message, f"✅ Ник изменён на: {args[1]}")
+
+@bot.message_handler(commands=['bio'])
+def bio_cmd(message):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.reply_to(message, "❌ /bio [статус]")
+        return
+    profile = get_profile(message.from_user.id)
+    profile['bio'] = args[1]
+    save_all_data()
+    bot.reply_to(message, f"✅ Статус обновлён: {args[1]}")
+
+# ===== КЛАНЫ =====
 @bot.message_handler(commands=['clan'])
 def clan_cmd(message):
     args = message.text.split(maxsplit=2)
@@ -503,7 +603,7 @@ def clan_cmd(message):
             return
         clans_data[name] = {"owner": user_id, "members": [user_id], "bank": 0, "created": datetime.now().isoformat()}
         save_all_data()
-        bot.reply_to(message, f"🏰 Клан **{name}** создан! (-5,000 🧱)\nИспользуй /clan help для списка команд.", parse_mode="Markdown")
+        bot.reply_to(message, f"🏰 Клан **{name}** создан! (-5,000 🧱)", parse_mode="Markdown")
     
     elif action == "join":
         if len(args) < 3:
@@ -535,7 +635,7 @@ def clan_cmd(message):
     elif action == "info":
         clan = get_user_clan(user_id)
         if not clan:
-            bot.reply_to(message, "❌ Ты не состоишь в клане! Используй /clan info [имя] для просмотра любого клана.")
+            bot.reply_to(message, "❌ Ты не состоишь в клане!")
             return
         data = clans_data[clan]
         owner_name = get_user_name(data["owner"])
@@ -1164,13 +1264,11 @@ def info_cmd(message):
     rank = get_rank(cid, uid)
     rank_names = {0: "Участник", 1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца", 4: "Владелец"}
     vip_text = f"{VIP_LEVELS[vip['level']]['color']} {VIP_LEVELS[vip['level']]['name']}" if vip['level'] > 0 else "Нет"
-    bal = get_balance(uid)
     clan = get_user_clan(uid)
     text = f"""📊 **Информация**
 👤 {get_vip_display(uid, profile['nick'] or u.first_name)}
 🆔 `{uid}`
 📝 {profile['bio'] or 'Нет статуса'}
-💰 Баланс: {bal['balance']:,} 🧱
 💎 VIP: {vip_text}
 🏰 Клан: {clan if clan else 'Нет'}
 👑 Статус: {status}
@@ -1214,46 +1312,6 @@ def staff_list(message):
         text += f"• {get_vip_display(uid, name)} — {rn[rank]} (ранг {rank})\n"
     bot.reply_to(message, text, parse_mode="Markdown")
 
-# ===== ПРОФИЛЬ =====
-@bot.message_handler(commands=['nick'])
-def nick_cmd(message):
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        bot.reply_to(message, "❌ /nick [новое имя]")
-        return
-    profile = get_profile(message.from_user.id)
-    profile['nick'] = args[1]
-    save_all_data()
-    bot.reply_to(message, f"✅ Ник изменён на: {args[1]}")
-
-@bot.message_handler(commands=['bio'])
-def bio_cmd(message):
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        bot.reply_to(message, "❌ /bio [статус]")
-        return
-    profile = get_profile(message.from_user.id)
-    profile['bio'] = args[1]
-    save_all_data()
-    bot.reply_to(message, f"✅ Статус обновлён: {args[1]}")
-
-@bot.message_handler(commands=['profile'])
-def profile_cmd(message):
-    u = message.reply_to_message.from_user if message.reply_to_message else message.from_user
-    profile = get_profile(u.id)
-    bal = get_balance(u.id)
-    vip = get_vip(u.id)
-    vip_text = f"{VIP_LEVELS[vip['level']]['color']} {VIP_LEVELS[vip['level']]['name']}" if vip['level'] > 0 else "Нет"
-    clan = get_user_clan(u.id)
-    text = f"""👤 **Профиль**
-Имя: {get_vip_display(u.id, profile['nick'] or u.first_name)}
-ID: `{u.id}`
-💰 Баланс: {bal['balance']:,} 🧱
-💎 VIP: {vip_text}
-🏰 Клан: {clan if clan else 'Нет'}
-📝 Статус: {profile['bio'] or 'Не установлен'}"""
-    bot.reply_to(message, text, parse_mode="Markdown")
-
 # ===== ТОП =====
 @bot.message_handler(commands=['top'])
 def top_cmd(message):
@@ -1285,7 +1343,7 @@ def top_cmd(message):
 def translate_cmd(message):
     args = message.text.split(maxsplit=1)
     if not message.reply_to_message and len(args) < 2:
-        bot.reply_to(message, "❌ Ответьте на сообщение или напишите текст!\nПример: /translate Hello world")
+        bot.reply_to(message, "❌ Ответьте на сообщение или напишите текст!")
         return
     if message.reply_to_message:
         text = message.reply_to_message.text
@@ -1298,8 +1356,7 @@ def translate_cmd(message):
         url = f"https://api.mymemory.translated.net/get?q={text}&langpair=auto|ru"
         response = requests.get(url).json()
         translated = response['responseData']['translatedText']
-        original_lang = response['responseData']['detectedLanguage'].upper()
-        bot.reply_to(message, f"🌐 **Перевод**\n\n📥 {original_lang}: {text}\n📤 RU: {translated}", parse_mode="Markdown")
+        bot.reply_to(message, f"🌐 **Перевод:**\n\n{translated}", parse_mode="Markdown")
     except:
         bot.reply_to(message, "❌ Не удалось перевести.")
 
@@ -1637,7 +1694,19 @@ def unmute_cmd(message):
     u = message.reply_to_message.from_user
     cid = message.chat.id
     try:
-        bot.restrict_chat_member(cid, u.id, can_send_messages=True)
+        bot.restrict_chat_member(
+            cid, u.id,
+            can_send_messages=True,
+            can_send_photos=True,
+            can_send_videos=True,
+            can_send_voices=True,
+            can_send_audios=True,
+            can_send_documents=True,
+            can_send_stickers=True,
+            can_send_animations=True,
+            can_send_games=True,
+            can_send_polls=True
+        )
         if u.id in mutes_data:
             mutes_data[u.id].pop(cid, None)
         save_all_data()
@@ -1789,14 +1858,68 @@ def welcome_off(message):
     save_all_data()
     bot.reply_to(message, "✅ Приветствие выключено!")
 
-# ===== ПРИВЕТСТВИЕ =====
+# ===== КАПЧА КОМАНДА =====
+@bot.message_handler(commands=['captcha'])
+def captcha_cmd(message):
+    if not has_rank(message.chat.id, message.from_user.id, 2):
+        bot.reply_to(message, "❌ Нужен ранг 2+!")
+        return
+    cid = message.chat.id
+    pending = captcha_data.get(cid, [])
+    if not pending:
+        bot.reply_to(message, "✅ Нет пользователей, ожидающих капчу.")
+        return
+    text = "🔐 **Ожидают капчу:**\n\n"
+    for uid in pending:
+        name = get_user_name(uid, cid)
+        text += f"• {name} (`{uid}`)\n"
+    text += "\nОни должны написать /start боту в ЛС."
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+# ===== ПРИВЕТСТВИЕ С КАПЧЕЙ =====
 @bot.message_handler(content_types=['new_chat_members'])
 def welcome_new(message):
-    cd = get_chat_data(message.chat.id)
-    if not cd['welcome_enabled']:
-        return
+    cid = message.chat.id
+    cd = get_chat_data(cid)
+    
     for nm in message.new_chat_members:
-        bot.send_message(message.chat.id, cd['welcome'].replace('{name}', nm.first_name))
+        if nm.is_bot:
+            continue
+        
+        try:
+            bot.restrict_chat_member(
+                cid, nm.id,
+                can_send_messages=False,
+                can_send_photos=False,
+                can_send_videos=False,
+                can_send_voices=False,
+                can_send_audios=False,
+                can_send_documents=False,
+                can_send_stickers=False,
+                can_send_animations=False,
+                can_send_games=False,
+                can_send_polls=False
+            )
+        except:
+            pass
+        
+        if cid not in captcha_data:
+            captcha_data[cid] = []
+        if nm.id not in captcha_data[cid]:
+            captcha_data[cid].append(nm.id)
+        
+        try:
+            bot.send_message(
+                nm.id,
+                f"👋 Добро пожаловать в чат!\n\n"
+                f"Чтобы начать общаться, напиши мне /start\n"
+                f"Это защита от спам-ботов."
+            )
+        except:
+            pass
+        
+        if cd.get('welcome_enabled', True):
+            bot.send_message(cid, cd['welcome'].replace('{name}', nm.first_name))
 
 # ===== АНТИСПАМ =====
 @bot.message_handler(func=lambda m: True)
