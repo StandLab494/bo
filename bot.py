@@ -29,6 +29,7 @@ user_profiles = {}
 vip_data = {}
 economy = {}
 temp_data = {}
+clans_data = {}  # {clan_name: {owner, members, bank, created}}
 start_time = datetime.now()
 
 VIP_LEVELS = {
@@ -80,14 +81,14 @@ def save_all_data():
         "user_profiles": user_profiles,
         "vip_data": vip_data,
         "economy": economy,
-        "temp_data": temp_data_serializable()
+        "temp_data": temp_data_serializable(),
+        "clans_data": clans_data
     }
     
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def temp_data_serializable():
-    """Конвертирует temp_data в сериализуемый формат"""
     result = {}
     for uid, data in temp_data.items():
         result[str(uid)] = {}
@@ -102,7 +103,7 @@ def temp_data_serializable():
     return result
 
 def load_all_data():
-    global staff_data, warns_data, mutes_data, bans_data, chats_data, daily_stats, user_profiles, vip_data, economy, temp_data
+    global staff_data, warns_data, mutes_data, bans_data, chats_data, daily_stats, user_profiles, vip_data, economy, temp_data, clans_data
     
     if not os.path.exists(DB_FILE):
         return
@@ -127,6 +128,7 @@ def load_all_data():
         user_profiles = data.get("user_profiles", {})
         vip_data = data.get("vip_data", {})
         economy = data.get("economy", {})
+        clans_data = data.get("clans_data", {})
         
         temp_data = {}
         for uid, items in data.get("temp_data", {}).items():
@@ -145,28 +147,16 @@ def load_all_data():
         print(f"❌ Ошибка загрузки: {e}")
 
 def check_temp_expired():
-    """Проверяет и убирает просроченные временные выдачи"""
     now = datetime.now()
     for uid in list(temp_data.keys()):
         data = temp_data[uid]
-        
         if "vip" in data and data["vip"].get("until") and data["vip"]["until"] < now:
             vip_data.pop(str(uid), None)
             del temp_data[uid]["vip"]
-            try:
-                bot.send_message(uid, "⏰ Время вашего VIP истекло!")
-            except:
-                pass
-        
         if "rank" in data and data["rank"].get("until") and data["rank"]["until"] < now:
             for cid in list(staff_data.keys()):
                 staff_data[cid].pop(uid, None)
             del temp_data[uid]["rank"]
-            try:
-                bot.send_message(uid, "⏰ Время вашего ранга истекло!")
-            except:
-                pass
-        
         if uid in temp_data and not temp_data[uid]:
             del temp_data[uid]
 
@@ -254,6 +244,24 @@ def get_profile(user_id):
         user_profiles[uid] = {"nick": "", "bio": ""}
     return user_profiles[uid]
 
+def get_user_name(uid, cid=None):
+    """Получить имя пользователя безопасно"""
+    profile = get_profile(uid)
+    if profile and profile.get('nick'):
+        return profile['nick']
+    try:
+        if cid:
+            u = bot.get_chat_member(cid, uid)
+            return u.user.first_name
+    except:
+        pass
+    try:
+        chat = bot.get_chat(uid)
+        return chat.first_name
+    except:
+        pass
+    return f"ID:{uid}"
+
 def count_message(message):
     cid = message.chat.id
     uid = message.from_user.id
@@ -297,10 +305,11 @@ def private_help(message):
 
 👤 **Для всех:**
 /id, /info, /report, /rules, /staff
-/translate, /anonym, /daily
+/translate, /anonym
 /nick, /bio, /profile
 /top, /meme
-/balance, /work, /pay
+/balance, /work, /daily, /pay
+/clan, /lyrics, /song, /youtube
 
 🛡️ **Модерация:**
 Ранг 1: /mute, /mutetime, /warn, /kick
@@ -308,14 +317,8 @@ def private_help(message):
 Ранг 3: + /ban, /unban
 Ранг 4: + /raising, /downgrade, /gg
 
-💬 **RP-команды:**
-/hug, /kiss, /slap, /pat, /kill, /revive
-/hugme, /cry, /laugh, /dance
-
-💎 **VIP-команды:**
-/flex, /vipcolor, /spotlight, /loud, /ghost, /magic, /slow
-VIP+: /announce, /rainbow, /reverse, /secret, /countdown
-LEGEND+: /say, /poll, /echo, /bomb, /weather"""
+💬 **RP:** /hug, /kiss, /slap, /pat, /kill, /revive, /hugme, /cry, /laugh, /dance
+💎 **VIP:** /viphelp"""
     bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.chat.type == 'private' and m.text == "👤 Кем создан?")
@@ -365,11 +368,13 @@ def profile_private(message):
     bal = get_balance(message.from_user.id)
     vip = get_vip(message.from_user.id)
     vip_text = f"{VIP_LEVELS[vip['level']]['color']} {VIP_LEVELS[vip['level']]['name']}" if vip['level'] > 0 else "Нет"
+    clan = get_user_clan(message.from_user.id)
     text = f"""👤 **Профиль**
 Имя: {profile['nick'] or message.from_user.first_name}
 ID: `{message.from_user.id}`
 💰 Баланс: {bal['balance']:,} 🧱
 💎 VIP: {vip_text}
+🏰 Клан: {clan if clan else 'Нет'}
 📝 Статус: {profile['bio'] or 'Не установлен'}"""
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -451,6 +456,267 @@ def pay_cmd(message):
     save_all_data()
     bot.reply_to(message, f"✅ Переведено {amount} 🧱 пользователю {target}")
 
+# ===== КЛАНЫ =====
+def get_user_clan(user_id):
+    for name, data in clans_data.items():
+        if user_id in data.get("members", []):
+            return name
+    return None
+
+@bot.message_handler(commands=['clan'])
+def clan_cmd(message):
+    args = message.text.split(maxsplit=2)
+    if len(args) < 2:
+        bot.reply_to(message, 
+            "🏰 **Кланы — команды:**\n\n"
+            "/clan create [имя] — создать клан (5000 🧱)\n"
+            "/clan join [имя] — вступить в клан\n"
+            "/clan leave — покинуть клан\n"
+            "/clan info — информация о своём клане\n"
+            "/clan members — участники клана\n"
+            "/clan kick [ID] — выгнать (глава)\n"
+            "/clan promote [ID] — передать главенство\n"
+            "/clan disband — распустить клан (глава)\n"
+            "/clan bank — казна клана\n"
+            "/clan donate [сумма] — пополнить казну\n"
+            "/clan list — список всех кланов\n"
+            "/clan top — топ кланов по казне",
+            parse_mode="Markdown")
+        return
+    
+    action = args[1].lower()
+    user_id = message.from_user.id
+    
+    if action == "create":
+        if len(args) < 3:
+            bot.reply_to(message, "❌ /clan create [имя]")
+            return
+        name = args[2][:30]
+        if name in clans_data:
+            bot.reply_to(message, "❌ Клан с таким именем уже существует!")
+            return
+        if get_user_clan(user_id):
+            bot.reply_to(message, "❌ Ты уже состоишь в клане!")
+            return
+        if not spend_bricks(user_id, 5000):
+            bot.reply_to(message, "❌ Недостаточно кирпичей! Нужно 5,000 🧱")
+            return
+        clans_data[name] = {"owner": user_id, "members": [user_id], "bank": 0, "created": datetime.now().isoformat()}
+        save_all_data()
+        bot.reply_to(message, f"🏰 Клан **{name}** создан! (-5,000 🧱)\nИспользуй /clan help для списка команд.", parse_mode="Markdown")
+    
+    elif action == "join":
+        if len(args) < 3:
+            bot.reply_to(message, "❌ /clan join [имя]")
+            return
+        name = args[2]
+        if name not in clans_data:
+            bot.reply_to(message, "❌ Клан не найден!")
+            return
+        if get_user_clan(user_id):
+            bot.reply_to(message, "❌ Ты уже состоишь в клане!")
+            return
+        clans_data[name]["members"].append(user_id)
+        save_all_data()
+        bot.reply_to(message, f"✅ Ты вступил в клан **{name}**!")
+    
+    elif action == "leave":
+        clan = get_user_clan(user_id)
+        if not clan:
+            bot.reply_to(message, "❌ Ты не состоишь в клане!")
+            return
+        if clans_data[clan]["owner"] == user_id:
+            bot.reply_to(message, "❌ Глава не может покинуть клан! Используй /clan disband или /clan promote [ID]")
+            return
+        clans_data[clan]["members"].remove(user_id)
+        save_all_data()
+        bot.reply_to(message, f"🚪 Ты покинул клан **{clan}**.")
+    
+    elif action == "info":
+        clan = get_user_clan(user_id)
+        if not clan:
+            bot.reply_to(message, "❌ Ты не состоишь в клане! Используй /clan info [имя] для просмотра любого клана.")
+            return
+        data = clans_data[clan]
+        owner_name = get_user_name(data["owner"])
+        text = f"""🏰 **{clan}**
+👑 Глава: {owner_name}
+👥 Участников: {len(data['members'])}
+💰 Казна: {data['bank']:,} 🧱
+📅 Создан: {data['created'][:10]}"""
+        bot.reply_to(message, text, parse_mode="Markdown")
+    
+    elif action == "members":
+        clan = get_user_clan(user_id)
+        if not clan:
+            bot.reply_to(message, "❌ Ты не состоишь в клане!")
+            return
+        data = clans_data[clan]
+        text = f"👥 **Участники {clan}:**\n\n"
+        for mid in data["members"]:
+            name = get_user_name(mid)
+            crown = " 👑" if mid == data["owner"] else ""
+            text += f"• {name}{crown}\n"
+        bot.reply_to(message, text, parse_mode="Markdown")
+    
+    elif action == "kick":
+        if len(args) < 3:
+            bot.reply_to(message, "❌ /clan kick [ID]")
+            return
+        clan = get_user_clan(user_id)
+        if not clan:
+            bot.reply_to(message, "❌ Ты не состоишь в клане!")
+            return
+        if clans_data[clan]["owner"] != user_id:
+            bot.reply_to(message, "❌ Только глава может кикать!")
+            return
+        try:
+            target = int(args[2])
+        except:
+            bot.reply_to(message, "❌ Неверный ID!")
+            return
+        if target not in clans_data[clan]["members"]:
+            bot.reply_to(message, "❌ Этот пользователь не в клане!")
+            return
+        if target == user_id:
+            bot.reply_to(message, "❌ Нельзя кикнуть самого себя!")
+            return
+        clans_data[clan]["members"].remove(target)
+        save_all_data()
+        bot.reply_to(message, f"👢 {get_user_name(target)} исключён из клана!")
+    
+    elif action == "promote":
+        if len(args) < 3:
+            bot.reply_to(message, "❌ /clan promote [ID]")
+            return
+        clan = get_user_clan(user_id)
+        if not clan:
+            bot.reply_to(message, "❌ Ты не состоишь в клане!")
+            return
+        if clans_data[clan]["owner"] != user_id:
+            bot.reply_to(message, "❌ Только глава может передавать главенство!")
+            return
+        try:
+            target = int(args[2])
+        except:
+            bot.reply_to(message, "❌ Неверный ID!")
+            return
+        if target not in clans_data[clan]["members"]:
+            bot.reply_to(message, "❌ Этот пользователь не в клане!")
+            return
+        clans_data[clan]["owner"] = target
+        save_all_data()
+        bot.reply_to(message, f"👑 {get_user_name(target)} теперь глава клана **{clan}**!")
+    
+    elif action == "disband":
+        clan = get_user_clan(user_id)
+        if not clan:
+            bot.reply_to(message, "❌ Ты не состоишь в клане!")
+            return
+        if clans_data[clan]["owner"] != user_id:
+            bot.reply_to(message, "❌ Только глава может распустить клан!")
+            return
+        del clans_data[clan]
+        save_all_data()
+        bot.reply_to(message, f"💀 Клан **{clan}** распущен.")
+    
+    elif action == "bank":
+        clan = get_user_clan(user_id)
+        if not clan:
+            bot.reply_to(message, "❌ Ты не состоишь в клане!")
+            return
+        bot.reply_to(message, f"💰 Казна клана **{clan}**: {clans_data[clan]['bank']:,} 🧱")
+    
+    elif action == "donate":
+        if len(args) < 3:
+            bot.reply_to(message, "❌ /clan donate [сумма]")
+            return
+        clan = get_user_clan(user_id)
+        if not clan:
+            bot.reply_to(message, "❌ Ты не состоишь в клане!")
+            return
+        try:
+            amount = int(args[2])
+        except:
+            bot.reply_to(message, "❌ Число!")
+            return
+        if amount <= 0:
+            bot.reply_to(message, "❌ Сумма должна быть положительной!")
+            return
+        if not spend_bricks(user_id, amount):
+            bot.reply_to(message, "❌ Недостаточно кирпичей!")
+            return
+        clans_data[clan]["bank"] += amount
+        save_all_data()
+        bot.reply_to(message, f"✅ {amount:,} 🧱 добавлено в казну клана **{clan}**!")
+    
+    elif action == "list":
+        if not clans_data:
+            bot.reply_to(message, "📭 Нет созданных кланов.")
+            return
+        text = "🏰 **Список кланов:**\n\n"
+        for name, data in sorted(clans_data.items(), key=lambda x: len(x[1]["members"]), reverse=True):
+            text += f"• **{name}** — {len(data['members'])} чел. | 💰 {data['bank']:,} 🧱\n"
+        bot.reply_to(message, text, parse_mode="Markdown")
+    
+    elif action == "top":
+        if not clans_data:
+            bot.reply_to(message, "📭 Нет созданных кланов.")
+            return
+        sorted_clans = sorted(clans_data.items(), key=lambda x: x[1]["bank"], reverse=True)[:10]
+        text = "🏆 **Топ кланов по казне:**\n\n"
+        for i, (name, data) in enumerate(sorted_clans, 1):
+            text += f"{i}. **{name}** — {data['bank']:,} 🧱 ({len(data['members'])} чел.)\n"
+        bot.reply_to(message, text, parse_mode="Markdown")
+
+# ===== ПОИСК МУЗЫКИ =====
+@bot.message_handler(commands=['lyrics'])
+def lyrics_cmd(message):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.reply_to(message, "❌ /lyrics [название песни]")
+        return
+    try:
+        url = f"https://api.lyrics.ovh/v1/{args[1]}"
+        response = requests.get(url).json()
+        if "lyrics" in response:
+            lyrics = response["lyrics"][:4000]
+            bot.reply_to(message, f"🎵 **{args[1]}**\n\n{lyrics}", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ Текст не найден!")
+    except:
+        bot.reply_to(message, "❌ Не удалось найти текст песни.")
+
+@bot.message_handler(commands=['song'])
+def song_cmd(message):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.reply_to(message, "❌ /song [название]")
+        return
+    try:
+        url = f"http://ws.audioscrobbler.com/2.0/?method=track.search&track={args[1]}&api_key=1d3e5c5e5c5e5c5e5c5e5c5e5c5e5c5e&format=json"
+        response = requests.get(url).json()
+        tracks = response.get("results", {}).get("trackmatches", {}).get("track", [])
+        if tracks:
+            t = tracks[0]
+            text = f"""🎵 **{t['name']}**
+👤 Исполнитель: {t['artist']}
+🔗 [Слушать на Last.fm]({t['url']})"""
+            bot.reply_to(message, text, parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ Трек не найден!")
+    except:
+        bot.reply_to(message, "❌ Не удалось найти трек.")
+
+@bot.message_handler(commands=['youtube'])
+def youtube_cmd(message):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.reply_to(message, "❌ /youtube [запрос]")
+        return
+    query = args[1].replace(" ", "+")
+    bot.reply_to(message, f"🔍 [Поиск на YouTube: {args[1]}](https://www.youtube.com/results?search_query={query})", parse_mode="Markdown", disable_web_page_preview=False)
+
 # ===== ВЫДАЧА ОТ ВЛАДЕЛЬЦА =====
 @bot.message_handler(commands=['gift'])
 def gift_cmd(message):
@@ -461,20 +727,14 @@ def gift_cmd(message):
     args = message.text.split()
     if len(args) < 3:
         bot.reply_to(message, 
-            "❌ Используй: /gift [ID] [что] [кол-во] [время]\n\n"
+            "❌ /gift [ID] [что] [кол-во] [время]\n\n"
             "📋 **Что можно выдать:**\n"
-            "• vip [1-3] [время] — выдать VIP на время\n"
-            "• bricks [сумма] — выдать кирпичи\n"
-            "• rank [1-3] [время] — выдать ранг на время\n"
-            "• unwarn — снять все варны\n"
+            "• vip [1-3] [время] — VIP на время\n"
+            "• bricks [сумма] — кирпичи\n"
+            "• rank [1-3] [время] — ранг на время\n"
+            "• unwarn — снять варны\n"
             "• reset — сбросить игрока\n\n"
-            "⏰ **Форматы времени:**\n"
-            "• 1h — 1 час\n• 1d — 1 день\n• 7d — 7 дней\n• 30d — 30 дней\n• perm — навсегда\n\n"
-            "Примеры:\n"
-            "/gift 123456789 vip 3 7d\n"
-            "/gift 123456789 bricks 5000\n"
-            "/gift 123456789 rank 2 1d\n"
-            "/gift 123456789 vip 1 perm")
+            "⏰ Время: 1h, 1d, 7d, 30d, perm")
         return
     
     try:
@@ -488,99 +748,64 @@ def gift_cmd(message):
         if len(args) < 4:
             bot.reply_to(message, "❌ /gift [ID] vip [1-3] [время]")
             return
-        try:
-            level = int(args[3])
-        except:
-            bot.reply_to(message, "❌ Уровень должен быть числом!")
-            return
+        level = int(args[3])
         if level < 1 or level > 3:
             bot.reply_to(message, "❌ Уровень VIP: 1, 2 или 3!")
             return
-        
         time_str = args[4] if len(args) > 4 else "perm"
         until = None
         if time_str != "perm":
             match = re.match(r'(\d+)(h|d)', time_str)
             if match:
                 num = int(match.group(1))
-                unit = match.group(2)
-                until = datetime.now() + timedelta(hours=num) if unit == 'h' else datetime.now() + timedelta(days=num)
+                until = datetime.now() + timedelta(hours=num) if match.group(2) == 'h' else datetime.now() + timedelta(days=num)
             else:
                 bot.reply_to(message, "❌ Неверный формат времени!")
                 return
-        
         vip_data[str(target_id)] = {"level": level, "color": "purple"}
         if until:
             if str(target_id) not in temp_data:
                 temp_data[str(target_id)] = {}
             temp_data[str(target_id)]["vip"] = {"level": level, "until": until}
-        
         save_all_data()
         info = VIP_LEVELS[level]
         time_display = f"на {time_str}" if until else "навсегда"
         bot.reply_to(message, f"✅ {info['color']} {info['name']} выдан {target_id} {time_display}!")
-        try:
-            bot.send_message(target_id, f"🎉 Вам выдан {info['color']} **{info['name']}** {time_display}!\n/viphelp — список команд.", parse_mode="Markdown")
-        except:
-            pass
     
     elif action == "bricks":
         if len(args) < 4:
             bot.reply_to(message, "❌ /gift [ID] bricks [сумма]")
             return
-        try:
-            amount = int(args[3])
-        except:
-            bot.reply_to(message, "❌ Сумма должна быть числом!")
-            return
+        amount = int(args[3])
         add_bricks(target_id, amount)
         save_all_data()
         bot.reply_to(message, f"✅ {amount:,} 🧱 выдано {target_id}!")
-        try:
-            bot.send_message(target_id, f"🎁 Вам выдано {amount:,} 🧱!\nБаланс: {get_balance(target_id)['balance']:,} 🧱")
-        except:
-            pass
     
     elif action == "rank":
         if len(args) < 4:
             bot.reply_to(message, "❌ /gift [ID] rank [1-3] [время]")
             return
-        try:
-            rank_level = int(args[3])
-        except:
-            bot.reply_to(message, "❌ Ранг должен быть числом!")
-            return
+        rank_level = int(args[3])
         if rank_level < 1 or rank_level > 3:
             bot.reply_to(message, "❌ Ранг: 1-Модератор, 2-Мл.владелец, 3-Пом.владельца")
             return
-        
         time_str = args[4] if len(args) > 4 else "perm"
         until = None
         if time_str != "perm":
             match = re.match(r'(\d+)(h|d)', time_str)
             if match:
                 num = int(match.group(1))
-                unit = match.group(2)
-                until = datetime.now() + timedelta(hours=num) if unit == 'h' else datetime.now() + timedelta(days=num)
-            else:
-                bot.reply_to(message, "❌ Неверный формат времени!")
-                return
-        
+                until = datetime.now() + timedelta(hours=num) if match.group(2) == 'h' else datetime.now() + timedelta(days=num)
         for cid in chats_data.keys():
             set_rank(int(cid), target_id, rank_level)
         if until:
             if str(target_id) not in temp_data:
                 temp_data[str(target_id)] = {}
             temp_data[str(target_id)]["rank"] = {"level": rank_level, "until": until}
-        
         save_all_data()
         rank_names = {1: "Модератор", 2: "Младший владелец", 3: "Помощник владельца"}
         time_display = f"на {time_str}" if until else "навсегда"
         bot.reply_to(message, f"✅ Ранг {rank_level} ({rank_names[rank_level]}) выдан {target_id} {time_display}!")
-        try:
-            bot.send_message(target_id, f"🎖 Вам выдан ранг: **{rank_names[rank_level]}** {time_display}!", parse_mode="Markdown")
-        except:
-            pass
     
     elif action == "unwarn":
         if str(target_id) in warns_data:
@@ -603,9 +828,6 @@ def gift_cmd(message):
             staff_data[cid].pop(target_id, None)
         save_all_data()
         bot.reply_to(message, f"💀 Игрок {target_id} полностью сброшен!")
-    
-    else:
-        bot.reply_to(message, f"❌ Неизвестное действие: {action}\nДоступно: vip, bricks, rank, unwarn, reset")
 
 # ===== VIP-КОМАНДЫ =====
 @bot.message_handler(commands=['viphelp'])
@@ -614,10 +836,9 @@ def vip_help(message):
         bot.reply_to(message, "❌ Только для VIP!")
         return
     text = """💎 **VIP-команды**
-
-⭐ **VIP:** /flex, /vipcolor, /spotlight, /loud, /ghost, /magic, /slow
-🌟 **VIP+:** /announce, /rainbow, /reverse, /secret, /countdown
-💎 **LEGEND+:** /say, /poll, /echo, /bomb, /weather"""
+⭐ VIP: /flex, /vipcolor, /spotlight, /loud, /ghost, /magic, /slow
+🌟 VIP+: /announce, /rainbow, /reverse, /secret, /countdown
+💎 LEGEND+: /say, /poll, /echo, /bomb, /weather"""
     bot.reply_to(message, text)
 
 @bot.message_handler(commands=['flex'])
@@ -849,7 +1070,7 @@ def msg_cmd(message):
         return
     args = message.text.split(maxsplit=2)
     if len(args) < 3:
-        bot.reply_to(message, "❌ Используй: /msg [юзернейм или ID] [сообщение]")
+        bot.reply_to(message, "❌ /msg [юзернейм или ID] [сообщение]")
         return
     target = args[1]
     text = args[2]
@@ -869,7 +1090,7 @@ def msg_cmd(message):
             bot.send_message(f"@{target}", f"📨 **Сообщение от администрации:**\n\n{text}", parse_mode="Markdown")
         bot.reply_to(message, f"✅ Сообщение отправлено: {target}")
     except Exception as e:
-        bot.reply_to(message, f"❌ Не удалось отправить сообщение!\nОшибка: {e}")
+        bot.reply_to(message, f"❌ Не удалось отправить!\nОшибка: {e}")
 
 @bot.message_handler(commands=['dmall'])
 def dmall_cmd(message):
@@ -904,6 +1125,7 @@ def help_cmd(message):
 /nick, /bio, /profile
 /top, /meme
 /balance, /work, /daily, /pay
+/clan, /lyrics, /song, /youtube
 
 🛡️ **Модерация:**
 Ранг 1: /mute, /mutetime, /warn, /kick
@@ -943,12 +1165,14 @@ def info_cmd(message):
     rank_names = {0: "Участник", 1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца", 4: "Владелец"}
     vip_text = f"{VIP_LEVELS[vip['level']]['color']} {VIP_LEVELS[vip['level']]['name']}" if vip['level'] > 0 else "Нет"
     bal = get_balance(uid)
+    clan = get_user_clan(uid)
     text = f"""📊 **Информация**
 👤 {get_vip_display(uid, profile['nick'] or u.first_name)}
 🆔 `{uid}`
 📝 {profile['bio'] or 'Нет статуса'}
 💰 Баланс: {bal['balance']:,} 🧱
 💎 VIP: {vip_text}
+🏰 Клан: {clan if clan else 'Нет'}
 👑 Статус: {status}
 🎖 Ранг: {rank_names[rank]} ({rank})
 ⚠️ Варны: {len(warns)}/3
@@ -986,13 +1210,8 @@ def staff_list(message):
     rn = {1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца"}
     text = "🛡️ **Персонал:**\n\n"
     for uid, rank in sorted(staff.items(), key=lambda x: x[1], reverse=True):
-        profile = get_profile(uid)
-        try:
-            u = bot.get_chat_member(cid, uid).user
-            name = profile['nick'] or u.first_name
-            text += f"• {get_vip_display(uid, name)} — {rn[rank]} (ранг {rank})\n"
-        except:
-            text += f"• ID:{uid} — {rn[rank]}\n"
+        name = get_user_name(uid, cid)
+        text += f"• {get_vip_display(uid, name)} — {rn[rank]} (ранг {rank})\n"
     bot.reply_to(message, text, parse_mode="Markdown")
 
 # ===== ПРОФИЛЬ =====
@@ -1025,11 +1244,13 @@ def profile_cmd(message):
     bal = get_balance(u.id)
     vip = get_vip(u.id)
     vip_text = f"{VIP_LEVELS[vip['level']]['color']} {VIP_LEVELS[vip['level']]['name']}" if vip['level'] > 0 else "Нет"
+    clan = get_user_clan(u.id)
     text = f"""👤 **Профиль**
 Имя: {get_vip_display(u.id, profile['nick'] or u.first_name)}
 ID: `{u.id}`
 💰 Баланс: {bal['balance']:,} 🧱
 💎 VIP: {vip_text}
+🏰 Клан: {clan if clan else 'Нет'}
 📝 Статус: {profile['bio'] or 'Не установлен'}"""
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -1042,26 +1263,20 @@ def top_cmd(message):
     
     text = "🏆 **Топ-10 богачей**\n\n"
     rich = sorted(economy.items(), key=lambda x: x[1].get("balance", 0), reverse=True)[:10]
+    
     for i, (uid, data) in enumerate(rich, 1):
-        profile = get_profile(int(uid))
-        try:
-            u = bot.get_chat_member(cid, int(uid)).user
-            name = profile['nick'] or u.first_name
-        except:
-            name = f"ID:{uid}"
-        text += f"{i}. {get_vip_display(int(uid), name)} — {data['balance']:,} 🧱\n"
+        name = get_user_name(int(uid), cid)
+        vip_display = get_vip_display(int(uid), name)
+        text += f"{i}. {vip_display} — {data.get('balance', 0):,} 🧱\n"
     
     text += "\n📊 **Топ активных:**\n"
-    if stats and stats["users"]:
+    if stats and stats.get("users"):
         top_users = sorted(stats["users"].items(), key=lambda x: x[1], reverse=True)[:5]
         for i, (uid, count) in enumerate(top_users, 1):
-            profile = get_profile(uid)
-            try:
-                u = bot.get_chat_member(cid, uid).user
-                name = profile['nick'] or u.first_name
-            except:
-                name = f"ID:{uid}"
+            name = get_user_name(uid, cid)
             text += f"{i}. {name} — {count} сообщ.\n"
+    else:
+        text += "Нет данных за сегодня.\n"
     
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -1150,12 +1365,7 @@ def banlist_cmd(message):
         return
     text = "🚫 **Забаненные:**\n\n"
     for uid in banned[:20]:
-        profile = get_profile(int(uid))
-        try:
-            u = bot.get_chat_member(cid, int(uid)).user
-            name = profile['nick'] or u.first_name
-        except:
-            name = f"ID:{uid}"
+        name = get_user_name(int(uid), cid)
         text += f"• {name} (`{uid}`)\n"
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -1171,13 +1381,8 @@ def mutelist_cmd(message):
         return
     text = "🔇 **Замученные:**\n\n"
     for uid in muted[:20]:
-        profile = get_profile(uid)
+        name = get_user_name(uid, cid)
         until = mutes_data[uid][cid]
-        try:
-            u = bot.get_chat_member(cid, uid).user
-            name = profile['nick'] or u.first_name
-        except:
-            name = f"ID:{uid}"
         remaining = until - datetime.now()
         mins = remaining.seconds // 60
         text += f"• {name} — ещё {mins} мин.\n"
@@ -1676,12 +1881,7 @@ def auto_daily_report():
                 top_users = sorted(stats["users"].items(), key=lambda x: x[1], reverse=True)[:5]
                 text = f"📰 **Итоги дня** ({today})\n💬 {total_msgs} сообщ. | 👥 {total_users} акт.\n🏆 Топ: "
                 for i, (uid, _) in enumerate(top_users):
-                    profile = get_profile(uid)
-                    try:
-                        name = bot.get_chat_member(cid, uid).user.first_name
-                        name = profile['nick'] or name
-                    except:
-                        name = f"ID:{uid}"
+                    name = get_user_name(uid, cid)
                     text += f"{i+1}. {name} "
                 try:
                     bot.send_message(cid, text, parse_mode="Markdown")
