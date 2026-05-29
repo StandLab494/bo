@@ -37,12 +37,12 @@ start_time = datetime.now()
 
 # Настройки владельца
 owner_settings = {
-    "casino_odds": 0.5,     # Шанс выигрыша в казино (50%)
-    "steal_chance": 0.5,    # Шанс успешной кражи (50%)
-    "work_min": 10,         # Минимальный заработок
-    "work_max": 30,         # Максимальный заработок
-    "daily_bonus_min": 50,  # Минимальный бонус
-    "daily_bonus_max": 250, # Максимальный бонус
+    "casino_odds": 0.5,
+    "steal_chance": 0.5,
+    "work_min": 10,
+    "work_max": 30,
+    "daily_bonus_min": 50,
+    "daily_bonus_max": 250,
 }
 
 VIP_LEVELS = {
@@ -287,6 +287,9 @@ def count_message(message):
     uid = message.from_user.id
     today = datetime.now().strftime("%Y-%m-%d")
     
+    # Автоматически добавляем пользователя в базу при любом сообщении
+    get_balance(uid)
+    
     if cid not in daily_stats:
         daily_stats[cid] = {}
     if today not in daily_stats[cid]:
@@ -320,6 +323,7 @@ def get_private_keyboard():
 def start(message):
     user_id = message.from_user.id
     
+    # Проверяем капчу
     for cid, users in list(captcha_data.items()):
         if user_id in users:
             try:
@@ -338,6 +342,10 @@ def start(message):
             except:
                 pass
     
+    # Сохраняем пользователя в базу
+    get_balance(user_id)
+    save_all_data()
+    
     if message.chat.type == 'private':
         bot.send_message(message.chat.id,
             "🧱 **Wall — Чат-менеджер**\n\n"
@@ -346,13 +354,27 @@ def start(message):
             parse_mode="Markdown",
             reply_markup=get_private_keyboard())
 
+# ===== ОБРАБОТЧИК ВСЕХ ЛС СООБЩЕНИЙ =====
+@bot.message_handler(func=lambda m: m.chat.type == 'private')
+def private_handler(message):
+    """Сохраняет пользователя при любом сообщении в ЛС"""
+    get_balance(message.from_user.id)
+    save_all_data()
+    
+    # Авто-ответ только на неизвестные команды
+    known_buttons = ["❓ Помощь", "👤 Кем создан?", "💎 Купить VIP", "👤 Мой профиль", "💰 Баланс"]
+    if message.text and message.text not in known_buttons and not message.text.startswith('/'):
+        bot.reply_to(message, 
+            "👋 Привет! Используй кнопки ниже или напиши /help",
+            reply_markup=get_private_keyboard())
+
 # ===== КНОПКИ ЛС =====
 @bot.message_handler(func=lambda m: m.chat.type == 'private' and m.text == "❓ Помощь")
 def private_help(message):
     text = """🧱 **Wall — Команды**
-👤 **Для всех:** /id, /info, /report, /rules, /staff, /translate, /anonym, /nick, /bio, /profile, /top, /meme, /balance, /work, /daily, /pay, /clan, /lyrics, /song, /youtube
+👤 **Для всех:** /id, /info, /report, /rules, /staff, /translate, /anonym, /nick, /bio, /profile, /top, /meme, /balance, /work, /daily, /pay, /casino, /clan, /lyrics, /song, /youtube, /botlink
 🛡️ **Модерация:** Ранг 1: /mute, /mutetime, /warn, /kick. Ранг 2: + /bantime, /pin, /unpin. Ранг 3: + /ban, /unban. Ранг 4: + /raising, /downgrade, /gg
-💬 **RP:** /hug, /kiss, /slap, /pat, /kill, /revive, /hugme, /cry, /laugh, /dance
+💬 **RP:** /hug, /kiss, /slap, /pat, /kill, /revive, /hugme, /cry, /laugh, /dance, /poke, /tickle, /highfive, /wink, /blush, /facepalm, /shrug, /angry, /bored, /confused, /hungry, /sleep, /wakeup, /yawn, /think
 💎 **VIP:** /viphelp"""
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -761,12 +783,11 @@ def owner_panel(message):
 🎮 **Действия:**
 /gift — выдать что угодно
 /msg — сообщение в ЛС
-/dmall — рассылка всем
+/dmall — рассылка всем в ЛС
 /broadcast — рассылка в чаты
 /gban — глобальный бан"""
     bot.reply_to(message, text, parse_mode="Markdown")
 
-# Команды настройки
 @bot.message_handler(commands=['setboss'])
 def setboss_cmd(message):
     if message.from_user.id != OWNER_ID: return
@@ -1141,20 +1162,48 @@ def msg_cmd(message):
 
 @bot.message_handler(commands=['dmall'])
 def dmall_cmd(message):
-    if message.from_user.id != OWNER_ID: return
+    if message.from_user.id != OWNER_ID:
+        bot.reply_to(message, "❌ Только владелец бота!")
+        return
     args = message.text.split(maxsplit=1)
-    if len(args) < 2: bot.reply_to(message, "❌ /dmall [текст]"); return
+    if len(args) < 2:
+        bot.reply_to(message, "❌ /dmall [сообщение]")
+        return
+    text = args[1]
     sent = 0
+    failed = 0
+    status_msg = bot.reply_to(message, "⏳ Начинаю рассылку...")
+    
     for uid in list(economy.keys()):
-        try: bot.send_message(int(uid), f"📢 {args[1]}", parse_mode="Markdown"); sent += 1; time.sleep(0.05)
-        except: pass
-    bot.reply_to(message, f"✅ {sent}")
+        try:
+            bot.send_message(int(uid), f"📢 **Массовое уведомление:**\n\n{text}", parse_mode="Markdown")
+            sent += 1
+            time.sleep(0.05)
+        except:
+            failed += 1
+    
+    try:
+        bot.edit_message_text(
+            f"✅ Рассылка завершена!\n📤 Отправлено: {sent}\n❌ Не удалось: {failed}",
+            message.chat.id,
+            status_msg.message_id
+        )
+    except:
+        bot.send_message(message.chat.id, f"✅ Рассылка завершена!\n📤 Отправлено: {sent}\n❌ Не удалось: {failed}")
+
+@bot.message_handler(commands=['botlink'])
+def botlink_cmd(message):
+    bot.reply_to(message, 
+        "🤖 Чтобы получать уведомления от бота, напиши ему в ЛС:\n"
+        "👉 @Wall_bot\n"
+        "И нажми /start\n\n"
+        "После этого ты будешь получать важные объявления!")
 
 # ===== ОБЩИЕ КОМАНДЫ =====
 @bot.message_handler(commands=['help'])
 def help_cmd(message):
     text = """🧱 **Wall**
-👤 /id, /info, /report, /rules, /staff, /translate, /anonym, /nick, /bio, /profile, /top, /meme, /balance, /work, /daily, /pay, /casino, /clan, /lyrics, /song, /youtube
+👤 /id, /info, /report, /rules, /staff, /translate, /anonym, /nick, /bio, /profile, /top, /meme, /balance, /work, /daily, /pay, /casino, /clan, /lyrics, /song, /youtube, /botlink
 🛡️ Ранг 1: /mute, /mutetime, /warn, /kick. Ранг 2: + /bantime, /pin, /unpin. Ранг 3: + /ban, /unban. Ранг 4: + /raising, /downgrade, /gg
 💬 RP: /hug, /kiss, /slap, /pat, /kill, /revive, /hugme, /cry, /laugh, /dance, /poke, /tickle, /highfive, /wink, /blush, /facepalm, /shrug, /angry, /bored, /confused, /hungry, /sleep, /wakeup, /yawn, /think
 💎 VIP: /viphelp"""
