@@ -35,7 +35,6 @@ steal_times = {}
 boss_data = {}
 start_time = datetime.now()
 
-# Настройки владельца
 owner_settings = {
     "casino_odds": 0.5,
     "steal_chance": 0.5,
@@ -109,10 +108,7 @@ def temp_data_serializable():
         result[str(uid)] = {}
         for key, value in data.items():
             if "until" in value and value["until"]:
-                result[str(uid)][key] = {
-                    "level": value["level"],
-                    "until": value["until"].isoformat()
-                }
+                result[str(uid)][key] = {"level": value["level"], "until": value["until"].isoformat()}
             else:
                 result[str(uid)][key] = value
     return result
@@ -156,10 +152,7 @@ def load_all_data():
             temp_data[int(uid)] = {}
             for key, value in items.items():
                 if "until" in value and value["until"]:
-                    temp_data[int(uid)][key] = {
-                        "level": value["level"],
-                        "until": datetime.fromisoformat(value["until"])
-                    }
+                    temp_data[int(uid)][key] = {"level": value["level"], "until": datetime.fromisoformat(value["until"])}
                 else:
                     temp_data[int(uid)][key] = value
         
@@ -287,7 +280,6 @@ def count_message(message):
     uid = message.from_user.id
     today = datetime.now().strftime("%Y-%m-%d")
     
-    # Автоматически добавляем пользователя в базу при любом сообщении
     get_balance(uid)
     
     if cid not in daily_stats:
@@ -318,22 +310,19 @@ def get_private_keyboard():
     )
     return markup
 
-# ===== START С КАПЧЕЙ =====
+# ===== START =====
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
     
-    # Проверяем капчу
     for cid, users in list(captcha_data.items()):
         if user_id in users:
             try:
-                bot.restrict_chat_member(
-                    cid, user_id,
+                bot.restrict_chat_member(cid, user_id,
                     can_send_messages=True, can_send_photos=True, can_send_videos=True,
                     can_send_voices=True, can_send_audios=True, can_send_documents=True,
                     can_send_stickers=True, can_send_animations=True, can_send_games=True,
-                    can_send_polls=True
-                )
+                    can_send_polls=True)
                 captcha_data[cid].remove(user_id)
                 if not captcha_data[cid]:
                     del captcha_data[cid]
@@ -342,7 +331,6 @@ def start(message):
             except:
                 pass
     
-    # Сохраняем пользователя в базу
     get_balance(user_id)
     save_all_data()
     
@@ -354,21 +342,7 @@ def start(message):
             parse_mode="Markdown",
             reply_markup=get_private_keyboard())
 
-# ===== ОБРАБОТЧИК ВСЕХ ЛС СООБЩЕНИЙ =====
-@bot.message_handler(func=lambda m: m.chat.type == 'private')
-def private_handler(message):
-    """Сохраняет пользователя при любом сообщении в ЛС"""
-    get_balance(message.from_user.id)
-    save_all_data()
-    
-    # Авто-ответ только на неизвестные команды
-    known_buttons = ["❓ Помощь", "👤 Кем создан?", "💎 Купить VIP", "👤 Мой профиль", "💰 Баланс"]
-    if message.text and message.text not in known_buttons and not message.text.startswith('/'):
-        bot.reply_to(message, 
-            "👋 Привет! Используй кнопки ниже или напиши /help",
-            reply_markup=get_private_keyboard())
-
-# ===== КНОПКИ ЛС =====
+# ===== КНОПКИ ЛС (КОНКРЕТНЫЕ — ДОЛЖНЫ БЫТЬ ВЫШЕ ОБЩЕГО ОБРАБОТЧИКА) =====
 @bot.message_handler(func=lambda m: m.chat.type == 'private' and m.text == "❓ Помощь")
 def private_help(message):
     text = """🧱 **Wall — Команды**
@@ -388,26 +362,11 @@ def buy_vip_menu(message):
     for level, info in VIP_LEVELS.items():
         markup.add(telebot.types.InlineKeyboardButton(
             f"{info['color']} {info['name']} — {info['price']:,} 🧱",
-            callback_data=f"buyvip_{level}"
-        ))
+            callback_data=f"buyvip_{level}"))
     bal = get_balance(message.from_user.id)["balance"]
     bot.send_message(message.chat.id,
         f"💎 **Покупка VIP**\n\nТвой баланс: {bal:,} 🧱\n\nВыбери уровень:",
         parse_mode="Markdown", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("buyvip_"))
-def buy_vip_callback(call):
-    user_id = call.from_user.id
-    level = int(call.data.split("_")[1])
-    info = VIP_LEVELS[level]
-    bal = get_balance(user_id)
-    if not spend_bricks(user_id, info["price"]):
-        bot.answer_callback_query(call.id, f"❌ Не хватает! Нужно {info['price']:,}, у тебя {bal['balance']:,}")
-        return
-    vip_data[str(user_id)] = {"level": level, "color": "purple"}
-    save_all_data()
-    bot.answer_callback_query(call.id, f"✅ Куплен {info['name']}!")
-    bot.send_message(user_id, f"🎉 Ты теперь {info['color']} {info['name']}!\n/viphelp — список команд.")
 
 @bot.message_handler(func=lambda m: m.chat.type == 'private' and m.text == "💰 Баланс")
 def balance_cmd_private(message):
@@ -431,6 +390,31 @@ ID: `{message.from_user.id}`
 🏰 Клан: {clan if clan else 'Нет'}
 📝 Статус: {profile['bio'] or 'Не установлен'}"""
     bot.reply_to(message, text, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("buyvip_"))
+def buy_vip_callback(call):
+    user_id = call.from_user.id
+    level = int(call.data.split("_")[1])
+    info = VIP_LEVELS[level]
+    bal = get_balance(user_id)
+    if not spend_bricks(user_id, info["price"]):
+        bot.answer_callback_query(call.id, f"❌ Не хватает! Нужно {info['price']:,}, у тебя {bal['balance']:,}")
+        return
+    vip_data[str(user_id)] = {"level": level, "color": "purple"}
+    save_all_data()
+    bot.answer_callback_query(call.id, f"✅ Куплен {info['name']}!")
+    bot.send_message(user_id, f"🎉 Ты теперь {info['color']} {info['name']}!\n/viphelp — список команд.")
+
+# ===== ОБЩИЙ ОБРАБОТЧИК ЛС (ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ) =====
+@bot.message_handler(func=lambda m: m.chat.type == 'private')
+def private_handler(message):
+    """Срабатывает только если не сработали кнопки выше"""
+    get_balance(message.from_user.id)
+    save_all_data()
+    if message.text and not message.text.startswith('/'):
+        bot.reply_to(message,
+            "👋 Привет! Используй кнопки ниже или напиши /help",
+            reply_markup=get_private_keyboard())
 
 # ===== ЭКОНОМИКА =====
 @bot.message_handler(commands=['balance', 'bal'])
@@ -482,57 +466,40 @@ def daily_cmd(message):
 def pay_cmd(message):
     args = message.text.split()
     if len(args) < 3:
-        bot.reply_to(message, "❌ /pay [ID] [сумма]")
-        return
+        bot.reply_to(message, "❌ /pay [ID] [сумма]"); return
     try:
-        target = int(args[1])
-        amount = int(args[2])
+        target = int(args[1]); amount = int(args[2])
     except:
-        bot.reply_to(message, "❌ Неверные данные!")
-        return
+        bot.reply_to(message, "❌ Неверные данные!"); return
     if amount <= 0:
-        bot.reply_to(message, "❌ Сумма должна быть положительной!")
-        return
+        bot.reply_to(message, "❌ Сумма > 0!"); return
     if not spend_bricks(message.from_user.id, amount):
-        bot.reply_to(message, "❌ Недостаточно кирпичей!")
-        return
+        bot.reply_to(message, "❌ Недостаточно!"); return
     add_bricks(target, amount)
     save_all_data()
-    bot.reply_to(message, f"✅ Переведено {amount} 🧱 пользователю {target}")
+    bot.reply_to(message, f"✅ {amount} 🧱 → {target}")
 
 # ===== ПРОФИЛЬ =====
 @bot.message_handler(commands=['profile'])
 def profile_cmd(message):
-    if message.reply_to_message:
-        u = message.reply_to_message.from_user
-    else:
-        u = message.from_user
-    uid = u.id
-    cid = message.chat.id
-    profile = get_profile(uid)
-    vip = get_vip(uid)
-    clan = get_user_clan(uid)
-    rank = get_rank(cid, uid)
-    total_msgs = 0
-    for chat_id, days in daily_stats.items():
-        for day, data in days.items():
-            total_msgs += data.get("users", {}).get(uid, 0)
+    u = message.reply_to_message.from_user if message.reply_to_message else message.from_user
+    uid, cid = u.id, message.chat.id
+    profile, vip, clan, rank = get_profile(uid), get_vip(uid), get_user_clan(uid), get_rank(cid, uid)
+    total_msgs = sum(data.get("users", {}).get(uid, 0) for chat_id, days in daily_stats.items() for day, data in days.items())
     reg_date = "Неизвестно"
     if str(uid) in economy:
         eco = economy[str(uid)]
-        dates = []
-        if eco.get("last_work"): dates.append(eco["last_work"][:10])
-        if eco.get("last_daily"): dates.append(eco["last_daily"])
-        if dates: reg_date = sorted(dates)[0]
+        dates = [d for d in [eco.get("last_work", ""), eco.get("last_daily", "")] if d]
+        if dates: reg_date = sorted(dates)[0][:10]
     vip_text = f"{VIP_LEVELS[vip['level']]['color']} {VIP_LEVELS[vip['level']]['name']}" if vip['level'] > 0 else "Нет"
-    rank_names = {0: "Участник", 1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца", 4: "Владелец"}
-    text = f"""📇 **Профиль игрока**
+    rn = {0:"Участник", 1:"Модератор", 2:"Мл. владелец", 3:"Пом. владельца", 4:"Владелец"}
+    text = f"""📇 **Профиль**
 ━━━━━━━━━━━━━━━━
 👤 Имя: {profile['nick'] or u.first_name}
 🆔 ID: `{uid}`
 💎 VIP: {vip_text}
-🏰 Клан: {clan if clan else 'Нет'}
-🎖 Ранг в чате: {rank_names[rank]}
+🏰 Клан: {clan or 'Нет'}
+🎖 Ранг: {rn[rank]}
 📅 В боте с: {reg_date}
 💬 Сообщений: {total_msgs}
 ━━━━━━━━━━━━━━━━"""
@@ -541,129 +508,93 @@ def profile_cmd(message):
 @bot.message_handler(commands=['nick'])
 def nick_cmd(message):
     args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        bot.reply_to(message, "❌ /nick [новое имя]")
-        return
-    profile = get_profile(message.from_user.id)
-    profile['nick'] = args[1]
-    save_all_data()
-    bot.reply_to(message, f"✅ Ник изменён на: {args[1]}")
+    if len(args) < 2: bot.reply_to(message, "❌ /nick [имя]"); return
+    get_profile(message.from_user.id)['nick'] = args[1]; save_all_data()
+    bot.reply_to(message, f"✅ Ник: {args[1]}")
 
 @bot.message_handler(commands=['bio'])
 def bio_cmd(message):
     args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        bot.reply_to(message, "❌ /bio [статус]")
-        return
-    profile = get_profile(message.from_user.id)
-    profile['bio'] = args[1]
-    save_all_data()
-    bot.reply_to(message, f"✅ Статус обновлён: {args[1]}")
+    if len(args) < 2: bot.reply_to(message, "❌ /bio [статус]"); return
+    get_profile(message.from_user.id)['bio'] = args[1]; save_all_data()
+    bot.reply_to(message, f"✅ Статус: {args[1]}")
 
-# ===== КЛАНЫ =====
+# ===== КЛАНЫ (СЖАТАЯ ВЕРСИЯ) =====
 @bot.message_handler(commands=['clan'])
 def clan_cmd(message):
     args = message.text.split(maxsplit=2)
     if len(args) < 2:
-        bot.reply_to(message, 
-            "🏰 **Кланы:**\n/clan create [имя] (2000 🧱)\n/clan join [имя]\n/clan leave\n/clan info\n/clan members\n/clan kick [ID]\n/clan promote [ID]\n/clan disband\n/clan bank\n/clan donate [сумма]\n/clan list\n/clan top",
-            parse_mode="Markdown")
-        return
-    action = args[1].lower()
-    user_id = message.from_user.id
-    if action == "create":
-        if len(args) < 3: bot.reply_to(message, "❌ /clan create [имя]"); return
-        name = args[2][:30]
-        if name in clans_data: bot.reply_to(message, "❌ Клан уже существует!"); return
-        if get_user_clan(user_id): bot.reply_to(message, "❌ Ты уже в клане!"); return
-        if not spend_bricks(user_id, 2000): bot.reply_to(message, "❌ Нужно 2,000 🧱!"); return
-        clans_data[name] = {"owner": user_id, "members": [user_id], "bank": 0, "created": datetime.now().isoformat()}
-        save_all_data()
-        bot.reply_to(message, f"🏰 Клан **{name}** создан! (-2,000 🧱)", parse_mode="Markdown")
-    elif action == "join":
-        if len(args) < 3: bot.reply_to(message, "❌ /clan join [имя]"); return
-        name = args[2]
-        if name not in clans_data: bot.reply_to(message, "❌ Клан не найден!"); return
-        if get_user_clan(user_id): bot.reply_to(message, "❌ Ты уже в клане!"); return
-        clans_data[name]["members"].append(user_id)
-        save_all_data()
-        bot.reply_to(message, f"✅ Ты вступил в клан **{name}**!")
-    elif action == "leave":
-        clan = get_user_clan(user_id)
-        if not clan: bot.reply_to(message, "❌ Ты не в клане!"); return
-        if clans_data[clan]["owner"] == user_id: bot.reply_to(message, "❌ Глава не может покинуть клан!"); return
-        clans_data[clan]["members"].remove(user_id)
-        save_all_data()
-        bot.reply_to(message, f"🚪 Ты покинул клан **{clan}**.")
-    elif action == "info":
-        clan = get_user_clan(user_id)
-        if not clan: bot.reply_to(message, "❌ Ты не в клане!"); return
-        data = clans_data[clan]
-        text = f"""🏰 **{clan}**\n👑 Глава: {get_user_name(data['owner'])}\n👥 Участников: {len(data['members'])}\n💰 Казна: {data['bank']:,} 🧱\n📅 Создан: {data['created'][:10]}"""
-        bot.reply_to(message, text, parse_mode="Markdown")
-    elif action == "members":
-        clan = get_user_clan(user_id)
-        if not clan: bot.reply_to(message, "❌ Ты не в клане!"); return
-        data = clans_data[clan]
-        text = f"👥 **{clan}:**\n\n"
-        for mid in data["members"]:
-            crown = " 👑" if mid == data["owner"] else ""
-            text += f"• {get_user_name(mid)}{crown}\n"
-        bot.reply_to(message, text, parse_mode="Markdown")
-    elif action == "kick":
-        if len(args) < 3: bot.reply_to(message, "❌ /clan kick [ID]"); return
-        clan = get_user_clan(user_id)
-        if not clan or clans_data[clan]["owner"] != user_id: bot.reply_to(message, "❌ Только глава!"); return
-        try: target = int(args[2])
-        except: bot.reply_to(message, "❌ Неверный ID!"); return
-        if target not in clans_data[clan]["members"]: bot.reply_to(message, "❌ Не в клане!"); return
-        clans_data[clan]["members"].remove(target)
-        save_all_data()
-        bot.reply_to(message, f"👢 {get_user_name(target)} исключён!")
-    elif action == "promote":
-        if len(args) < 3: bot.reply_to(message, "❌ /clan promote [ID]"); return
-        clan = get_user_clan(user_id)
-        if not clan or clans_data[clan]["owner"] != user_id: bot.reply_to(message, "❌ Только глава!"); return
-        try: target = int(args[2])
-        except: bot.reply_to(message, "❌ Неверный ID!"); return
-        if target not in clans_data[clan]["members"]: bot.reply_to(message, "❌ Не в клане!"); return
-        clans_data[clan]["owner"] = target
-        save_all_data()
-        bot.reply_to(message, f"👑 {get_user_name(target)} теперь глава!")
-    elif action == "disband":
-        clan = get_user_clan(user_id)
-        if not clan or clans_data[clan]["owner"] != user_id: bot.reply_to(message, "❌ Только глава!"); return
-        del clans_data[clan]
-        save_all_data()
-        bot.reply_to(message, f"💀 Клан **{clan}** распущен.")
-    elif action == "bank":
-        clan = get_user_clan(user_id)
-        if not clan: bot.reply_to(message, "❌ Ты не в клане!"); return
-        bot.reply_to(message, f"💰 Казна клана **{clan}**: {clans_data[clan]['bank']:,} 🧱")
-    elif action == "donate":
-        if len(args) < 3: bot.reply_to(message, "❌ /clan donate [сумма]"); return
-        clan = get_user_clan(user_id)
-        if not clan: bot.reply_to(message, "❌ Ты не в клане!"); return
-        try: amount = int(args[2])
-        except: bot.reply_to(message, "❌ Число!"); return
-        if amount <= 0: bot.reply_to(message, "❌ Сумма > 0!"); return
-        if not spend_bricks(user_id, amount): bot.reply_to(message, "❌ Недостаточно!"); return
-        clans_data[clan]["bank"] += amount
-        save_all_data()
-        bot.reply_to(message, f"✅ {amount:,} 🧱 в казну **{clan}**!")
-    elif action == "list":
-        if not clans_data: bot.reply_to(message, "📭 Нет кланов."); return
-        text = "🏰 **Список кланов:**\n\n"
-        for name, data in sorted(clans_data.items(), key=lambda x: len(x[1]["members"]), reverse=True):
-            text += f"• **{name}** — {len(data['members'])} чел. | 💰 {data['bank']:,} 🧱\n"
-        bot.reply_to(message, text, parse_mode="Markdown")
-    elif action == "top":
-        if not clans_data: bot.reply_to(message, "📭 Нет кланов."); return
-        sorted_clans = sorted(clans_data.items(), key=lambda x: x[1]["bank"], reverse=True)[:10]
-        text = "🏆 **Топ кланов:**\n\n"
-        for i, (name, data) in enumerate(sorted_clans, 1):
-            text += f"{i}. **{name}** — {data['bank']:,} 🧱 ({len(data['members'])} чел.)\n"
-        bot.reply_to(message, text, parse_mode="Markdown")
+        bot.reply_to(message, "🏰 /clan create [имя] (2000🧱) | join | leave | info | members | kick | promote | disband | bank | donate | list | top", parse_mode="Markdown"); return
+    a, uid = args[1].lower(), message.from_user.id
+    try:
+        if a == "create":
+            if len(args) < 3: bot.reply_to(message, "❌ /clan create [имя]"); return
+            n = args[2][:30]
+            if n in clans_data: bot.reply_to(message, "❌ Есть!"); return
+            if get_user_clan(uid): bot.reply_to(message, "❌ Уже в клане!"); return
+            if not spend_bricks(uid, 2000): bot.reply_to(message, "❌ 2000🧱!"); return
+            clans_data[n] = {"owner": uid, "members": [uid], "bank": 0, "created": datetime.now().isoformat()}
+            save_all_data(); bot.reply_to(message, f"🏰 **{n}** создан!", parse_mode="Markdown")
+        elif a == "join":
+            if len(args) < 3: bot.reply_to(message, "❌ /clan join [имя]"); return
+            n = args[2]
+            if n not in clans_data: bot.reply_to(message, "❌ Нет!"); return
+            if get_user_clan(uid): bot.reply_to(message, "❌ Уже в клане!"); return
+            clans_data[n]["members"].append(uid); save_all_data(); bot.reply_to(message, f"✅ Вступил в **{n}**!")
+        elif a == "leave":
+            c = get_user_clan(uid)
+            if not c: bot.reply_to(message, "❌ Не в клане!"); return
+            if clans_data[c]["owner"] == uid: bot.reply_to(message, "❌ Глава! /clan disband"); return
+            clans_data[c]["members"].remove(uid); save_all_data(); bot.reply_to(message, f"🚪 Покинул **{c}**.")
+        elif a == "info":
+            c = get_user_clan(uid)
+            if not c: bot.reply_to(message, "❌ Не в клане!"); return
+            d = clans_data[c]
+            bot.reply_to(message, f"🏰 **{c}**\n👑 {get_user_name(d['owner'])}\n👥 {len(d['members'])}\n💰 {d['bank']:,}🧱\n📅 {d['created'][:10]}", parse_mode="Markdown")
+        elif a == "members":
+            c = get_user_clan(uid)
+            if not c: bot.reply_to(message, "❌ Не в клане!"); return
+            text = f"👥 **{c}:**\n\n" + "\n".join(f"• {get_user_name(m)}{' 👑' if m == clans_data[c]['owner'] else ''}" for m in clans_data[c]["members"])
+            bot.reply_to(message, text, parse_mode="Markdown")
+        elif a == "kick":
+            if len(args) < 3: bot.reply_to(message, "❌ /clan kick [ID]"); return
+            c = get_user_clan(uid)
+            if not c or clans_data[c]["owner"] != uid: bot.reply_to(message, "❌ Только глава!"); return
+            t = int(args[2])
+            if t not in clans_data[c]["members"]: bot.reply_to(message, "❌ Не в клане!"); return
+            clans_data[c]["members"].remove(t); save_all_data(); bot.reply_to(message, f"👢 {get_user_name(t)} исключён!")
+        elif a == "promote":
+            if len(args) < 3: bot.reply_to(message, "❌ /clan promote [ID]"); return
+            c = get_user_clan(uid)
+            if not c or clans_data[c]["owner"] != uid: bot.reply_to(message, "❌ Только глава!"); return
+            t = int(args[2])
+            if t not in clans_data[c]["members"]: bot.reply_to(message, "❌ Не в клане!"); return
+            clans_data[c]["owner"] = t; save_all_data(); bot.reply_to(message, f"👑 {get_user_name(t)} — глава!")
+        elif a == "disband":
+            c = get_user_clan(uid)
+            if not c or clans_data[c]["owner"] != uid: bot.reply_to(message, "❌ Только глава!"); return
+            del clans_data[c]; save_all_data(); bot.reply_to(message, f"💀 **{c}** распущен.")
+        elif a == "bank":
+            c = get_user_clan(uid)
+            if not c: bot.reply_to(message, "❌ Не в клане!"); return
+            bot.reply_to(message, f"💰 {clans_data[c]['bank']:,}🧱")
+        elif a == "donate":
+            if len(args) < 3: bot.reply_to(message, "❌ /clan donate [сумма]"); return
+            c = get_user_clan(uid)
+            if not c: bot.reply_to(message, "❌ Не в клане!"); return
+            amt = int(args[2])
+            if amt <= 0 or not spend_bricks(uid, amt): bot.reply_to(message, "❌ Недостаточно!"); return
+            clans_data[c]["bank"] += amt; save_all_data(); bot.reply_to(message, f"✅ {amt:,}🧱 в казну!")
+        elif a == "list":
+            if not clans_data: bot.reply_to(message, "📭 Нет кланов."); return
+            text = "🏰 **Кланы:**\n\n" + "\n".join(f"• **{n}** — {len(d['members'])} чел. | 💰{d['bank']:,}" for n, d in sorted(clans_data.items(), key=lambda x: len(x[1]["members"]), reverse=True))
+            bot.reply_to(message, text, parse_mode="Markdown")
+        elif a == "top":
+            if not clans_data: bot.reply_to(message, "📭 Нет кланов."); return
+            text = "🏆 **Топ:**\n\n" + "\n".join(f"{i}. **{n}** — {d['bank']:,}🧱" for i, (n, d) in enumerate(sorted(clans_data.items(), key=lambda x: x[1]["bank"], reverse=True)[:10], 1))
+            bot.reply_to(message, text, parse_mode="Markdown")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Ошибка! {e}")
 
 # ===== МУЗЫКА =====
 @bot.message_handler(commands=['lyrics'])
@@ -671,11 +602,9 @@ def lyrics_cmd(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2: bot.reply_to(message, "❌ /lyrics [песня]"); return
     try:
-        url = f"https://api.lyrics.ovh/v1/{args[1]}"
-        response = requests.get(url).json()
-        if "lyrics" in response:
-            bot.reply_to(message, f"🎵 **{args[1]}**\n\n{response['lyrics'][:4000]}", parse_mode="Markdown")
-        else: bot.reply_to(message, "❌ Текст не найден!")
+        r = requests.get(f"https://api.lyrics.ovh/v1/{args[1]}").json()
+        if "lyrics" in r: bot.reply_to(message, f"🎵 **{args[1]}**\n\n{r['lyrics'][:4000]}", parse_mode="Markdown")
+        else: bot.reply_to(message, "❌ Не найдено!")
     except: bot.reply_to(message, "❌ Ошибка!")
 
 @bot.message_handler(commands=['song'])
@@ -683,12 +612,9 @@ def song_cmd(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2: bot.reply_to(message, "❌ /song [название]"); return
     try:
-        url = f"http://ws.audioscrobbler.com/2.0/?method=track.search&track={args[1]}&api_key=1d3e5c5e5c5e5c5e5c5e5c5e5c5e5c5e&format=json"
-        response = requests.get(url).json()
-        tracks = response.get("results", {}).get("trackmatches", {}).get("track", [])
-        if tracks:
-            t = tracks[0]
-            bot.reply_to(message, f"🎵 **{t['name']}**\n👤 {t['artist']}\n🔗 [Last.fm]({t['url']})", parse_mode="Markdown")
+        r = requests.get(f"http://ws.audioscrobbler.com/2.0/?method=track.search&track={args[1]}&api_key=1d3e5c5e5c5e5c5e5c5e5c5e5c5e5c5e&format=json").json()
+        tracks = r.get("results", {}).get("trackmatches", {}).get("track", [])
+        if tracks: bot.reply_to(message, f"🎵 **{tracks[0]['name']}**\n👤 {tracks[0]['artist']}\n🔗 [Last.fm]({tracks[0]['url']})", parse_mode="Markdown")
         else: bot.reply_to(message, "❌ Не найдено!")
     except: bot.reply_to(message, "❌ Ошибка!")
 
@@ -696,518 +622,282 @@ def song_cmd(message):
 def youtube_cmd(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2: bot.reply_to(message, "❌ /youtube [запрос]"); return
-    query = args[1].replace(" ", "+")
-    bot.reply_to(message, f"🔍 [YouTube: {args[1]}](https://www.youtube.com/results?search_query={query})", parse_mode="Markdown", disable_web_page_preview=False)
+    bot.reply_to(message, f"🔍 [YouTube: {args[1]}](https://www.youtube.com/results?search_query={args[1].replace(' ', '+')})", parse_mode="Markdown", disable_web_page_preview=False)
 
-# ===== ВЫДАЧА ОТ ВЛАДЕЛЬЦА =====
+# ===== ВЫДАЧА (ВЛАДЕЛЕЦ) =====
 @bot.message_handler(commands=['gift'])
 def gift_cmd(message):
-    if message.from_user.id != OWNER_ID:
-        bot.reply_to(message, "❌ Только владелец!")
-        return
+    if message.from_user.id != OWNER_ID: return
     args = message.text.split()
-    if len(args) < 3:
-        bot.reply_to(message, "❌ /gift [ID] [что] [кол-во] [время]\n📋 vip [1-3], bricks [сумма], rank [1-3], unwarn, reset\n⏰ 1h, 1d, 7d, 30d, perm")
-        return
-    try:
-        target_id = int(args[1])
-        action = args[2].lower()
-    except:
-        bot.reply_to(message, "❌ Неверный ID!"); return
+    if len(args) < 3: bot.reply_to(message, "❌ /gift [ID] [vip/bricks/rank/unwarn/reset] [кол-во]"); return
+    try: tid, act = int(args[1]), args[2].lower()
+    except: bot.reply_to(message, "❌ ID!"); return
     
-    if action == "vip":
-        if len(args) < 4: bot.reply_to(message, "❌ /gift [ID] vip [1-3] [время]"); return
-        level = int(args[3])
-        if level < 1 or level > 3: bot.reply_to(message, "❌ Уровень 1-3!"); return
-        time_str = args[4] if len(args) > 4 else "perm"
+    if act == "vip":
+        lvl = int(args[3])
+        if lvl < 1 or lvl > 3: bot.reply_to(message, "❌ 1-3!"); return
+        ts = args[4] if len(args) > 4 else "perm"
         until = None
-        if time_str != "perm":
-            match = re.match(r'(\d+)(h|d)', time_str)
-            if match: until = datetime.now() + timedelta(hours=int(match.group(1))) if match.group(2) == 'h' else datetime.now() + timedelta(days=int(match.group(1)))
-            else: bot.reply_to(message, "❌ Формат: 1h, 1d, 7d"); return
-        vip_data[str(target_id)] = {"level": level, "color": "purple"}
-        if until:
-            if str(target_id) not in temp_data: temp_data[str(target_id)] = {}
-            temp_data[str(target_id)]["vip"] = {"level": level, "until": until}
-        save_all_data()
-        bot.reply_to(message, f"✅ {VIP_LEVELS[level]['color']} {VIP_LEVELS[level]['name']} выдан {target_id}!")
-    elif action == "bricks":
-        if len(args) < 4: bot.reply_to(message, "❌ /gift [ID] bricks [сумма]"); return
-        add_bricks(target_id, int(args[3]))
-        save_all_data()
-        bot.reply_to(message, f"✅ {int(args[3]):,} 🧱 выдано {target_id}!")
-    elif action == "rank":
-        if len(args) < 4: bot.reply_to(message, "❌ /gift [ID] rank [1-3] [время]"); return
-        rank_level = int(args[3])
-        time_str = args[4] if len(args) > 4 else "perm"
+        if ts != "perm":
+            m = re.match(r'(\d+)(h|d)', ts)
+            if m: until = datetime.now() + timedelta(hours=int(m.group(1))) if m.group(2)=='h' else datetime.now() + timedelta(days=int(m.group(1)))
+            else: bot.reply_to(message, "❌ 1h/1d/7d"); return
+        vip_data[str(tid)] = {"level": lvl, "color": "purple"}
+        if until: temp_data.setdefault(str(tid), {})["vip"] = {"level": lvl, "until": until}
+        save_all_data(); bot.reply_to(message, f"✅ {VIP_LEVELS[lvl]['name']} → {tid}")
+    elif act == "bricks":
+        add_bricks(tid, int(args[3])); save_all_data(); bot.reply_to(message, f"✅ {int(args[3]):,}🧱 → {tid}")
+    elif act == "rank":
+        rl = int(args[3]); ts = args[4] if len(args) > 4 else "perm"
         until = None
-        if time_str != "perm":
-            match = re.match(r'(\d+)(h|d)', time_str)
-            if match: until = datetime.now() + timedelta(hours=int(match.group(1))) if match.group(2) == 'h' else datetime.now() + timedelta(days=int(match.group(1)))
-        for cid in chats_data.keys(): set_rank(int(cid), target_id, rank_level)
-        if until:
-            if str(target_id) not in temp_data: temp_data[str(target_id)] = {}
-            temp_data[str(target_id)]["rank"] = {"level": rank_level, "until": until}
-        save_all_data()
-        rn = {1: "Модератор", 2: "Мл. владелец", 3: "Пом. владельца"}
-        bot.reply_to(message, f"✅ Ранг {rn[rank_level]} выдан {target_id}!")
-    elif action == "unwarn":
-        if str(target_id) in warns_data: warns_data[str(target_id)] = {}; save_all_data(); bot.reply_to(message, f"✅ Варны сняты с {target_id}!")
-        else: bot.reply_to(message, f"❌ У {target_id} нет варнов!")
-    elif action == "reset":
-        uid = str(target_id)
-        for d in [economy, vip_data, warns_data, mutes_data, bans_data, user_profiles, temp_data]:
-            d.pop(uid, None) if uid in d else None
-        for cid in staff_data: staff_data[cid].pop(target_id, None)
-        save_all_data()
-        bot.reply_to(message, f"💀 {target_id} сброшен!")
+        if ts != "perm":
+            m = re.match(r'(\d+)(h|d)', ts)
+            if m: until = datetime.now() + timedelta(hours=int(m.group(1))) if m.group(2)=='h' else datetime.now() + timedelta(days=int(m.group(1)))
+        for cid in chats_data: set_rank(int(cid), tid, rl)
+        if until: temp_data.setdefault(str(tid), {})["rank"] = {"level": rl, "until": until}
+        save_all_data(); bot.reply_to(message, f"✅ Ранг {rl} → {tid}")
+    elif act == "unwarn":
+        if str(tid) in warns_data: warns_data[str(tid)] = {}; save_all_data(); bot.reply_to(message, f"✅ Варны сняты!")
+        else: bot.reply_to(message, "❌ Нет варнов!")
+    elif act == "reset":
+        for d in [economy, vip_data, warns_data, mutes_data, bans_data, user_profiles, temp_data]: d.pop(str(tid), None)
+        for cid in staff_data: staff_data[cid].pop(tid, None)
+        save_all_data(); bot.reply_to(message, f"💀 {tid} сброшен!")
 
 # ===== ПАНЕЛЬ ВЛАДЕЛЬЦА =====
 @bot.message_handler(commands=['owner'])
 def owner_panel(message):
-    if message.from_user.id != OWNER_ID:
-        bot.reply_to(message, "❌ Только владелец!")
-        return
-    text = f"""👑 **Панель владельца**
-
-⚙️ **Настройки:**
-/setboss [HP] — создать босса
-/killboss — убить босса
-/setcasinoodds [0.1-0.9] — шанс казино (сейчас: {owner_settings['casino_odds']})
-/setstealchance [0.1-0.9] — шанс кражи (сейчас: {owner_settings['steal_chance']})
-/setworkmin [сумма] — мин. работа (сейчас: {owner_settings['work_min']})
-/setworkmax [сумма] — макс. работа (сейчас: {owner_settings['work_max']})
-/setdailybonusmin [сумма] — мин. бонус (сейчас: {owner_settings['daily_bonus_min']})
-/setdailybonusmax [сумма] — макс. бонус (сейчас: {owner_settings['daily_bonus_max']})
-
-🎮 **Действия:**
-/gift — выдать что угодно
-/msg — сообщение в ЛС
-/dmall — рассылка всем в ЛС
-/broadcast — рассылка в чаты
-/gban — глобальный бан"""
-    bot.reply_to(message, text, parse_mode="Markdown")
-
-@bot.message_handler(commands=['setboss'])
-def setboss_cmd(message):
     if message.from_user.id != OWNER_ID: return
-    args = message.text.split()
-    if len(args) < 2: bot.reply_to(message, "❌ /setboss [HP]"); return
-    try: hp = int(args[1])
-    except: bot.reply_to(message, "❌ Число!"); return
-    cid = message.chat.id
-    boss_data[cid] = {"hp": hp, "max_hp": hp, "players": [OWNER_ID], "active": True, "started": True, "damage_dealt": {}}
-    bot.reply_to(message, f"🐉 Босс создан! HP: {hp}")
+    bot.reply_to(message, f"""👑 **Панель**
+/setboss [HP] | /killboss
+/setcasinoodds [0.1-0.9] (сейчас: {owner_settings['casino_odds']})
+/setstealchance [0.1-0.9] (сейчас: {owner_settings['steal_chance']})
+/setworkmin [N] ({owner_settings['work_min']}) | /setworkmax [N] ({owner_settings['work_max']})
+/setdailybonusmin [N] ({owner_settings['daily_bonus_min']}) | /setdailybonusmax [N] ({owner_settings['daily_bonus_max']})
+/gift | /msg | /dmall | /broadcast | /gban""", parse_mode="Markdown")
 
-@bot.message_handler(commands=['killboss'])
-def killboss_cmd(message):
+@bot.message_handler(commands=['setboss','killboss','setcasinoodds','setstealchance','setworkmin','setworkmax','setdailybonusmin','setdailybonusmax'])
+def owner_settings_cmd(message):
     if message.from_user.id != OWNER_ID: return
-    cid = message.chat.id
-    if cid in boss_data: del boss_data[cid]; bot.reply_to(message, "💀 Босс уничтожен.")
-    else: bot.reply_to(message, "❌ Нет активного босса!")
+    cmd = message.text.split()[0][1:]
+    try:
+        if cmd == "setboss":
+            cid = message.chat.id; hp = int(message.text.split()[1])
+            boss_data[cid] = {"hp": hp, "max_hp": hp, "players": [OWNER_ID], "active": True, "started": True, "damage_dealt": {}}
+            bot.reply_to(message, f"🐉 HP: {hp}")
+        elif cmd == "killboss":
+            cid = message.chat.id
+            if cid in boss_data: del boss_data[cid]; bot.reply_to(message, "💀")
+            else: bot.reply_to(message, "❌ Нет босса!")
+        else:
+            key_map = {"setcasinoodds": "casino_odds", "setstealchance": "steal_chance", "setworkmin": "work_min", "setworkmax": "work_max", "setdailybonusmin": "daily_bonus_min", "setdailybonusmax": "daily_bonus_max"}
+            val = float(message.text.split()[1]) if "odds" in cmd or "chance" in cmd else int(message.text.split()[1])
+            owner_settings[key_map[cmd]] = val; save_all_data()
+            bot.reply_to(message, f"✅ {key_map[cmd]} = {val}")
+    except: bot.reply_to(message, "❌ Ошибка!")
 
-@bot.message_handler(commands=['setcasinoodds'])
-def setcasinoodds_cmd(message):
-    if message.from_user.id != OWNER_ID: return
-    args = message.text.split()
-    if len(args) < 2: bot.reply_to(message, f"❌ /setcasinoodds [0.1-0.9] (сейчас: {owner_settings['casino_odds']})"); return
-    try: val = float(args[1])
-    except: bot.reply_to(message, "❌ Число!"); return
-    if val < 0.1 or val > 0.9: bot.reply_to(message, "❌ От 0.1 до 0.9!"); return
-    owner_settings["casino_odds"] = val
-    save_all_data()
-    bot.reply_to(message, f"✅ Шанс казино: {val}")
-
-@bot.message_handler(commands=['setstealchance'])
-def setstealchance_cmd(message):
-    if message.from_user.id != OWNER_ID: return
-    args = message.text.split()
-    if len(args) < 2: bot.reply_to(message, f"❌ /setstealchance [0.1-0.9] (сейчас: {owner_settings['steal_chance']})"); return
-    try: val = float(args[1])
-    except: bot.reply_to(message, "❌ Число!"); return
-    if val < 0.1 or val > 0.9: bot.reply_to(message, "❌ От 0.1 до 0.9!"); return
-    owner_settings["steal_chance"] = val
-    save_all_data()
-    bot.reply_to(message, f"✅ Шанс кражи: {val}")
-
-@bot.message_handler(commands=['setworkmin'])
-def setworkmin_cmd(message):
-    if message.from_user.id != OWNER_ID: return
-    args = message.text.split()
-    if len(args) < 2: bot.reply_to(message, f"❌ /setworkmin [сумма] (сейчас: {owner_settings['work_min']})"); return
-    try: val = int(args[1])
-    except: bot.reply_to(message, "❌ Число!"); return
-    owner_settings["work_min"] = val
-    save_all_data()
-    bot.reply_to(message, f"✅ Мин. работа: {val} 🧱")
-
-@bot.message_handler(commands=['setworkmax'])
-def setworkmax_cmd(message):
-    if message.from_user.id != OWNER_ID: return
-    args = message.text.split()
-    if len(args) < 2: bot.reply_to(message, f"❌ /setworkmax [сумма] (сейчас: {owner_settings['work_max']})"); return
-    try: val = int(args[1])
-    except: bot.reply_to(message, "❌ Число!"); return
-    owner_settings["work_max"] = val
-    save_all_data()
-    bot.reply_to(message, f"✅ Макс. работа: {val} 🧱")
-
-@bot.message_handler(commands=['setdailybonusmin'])
-def setdailybonusmin_cmd(message):
-    if message.from_user.id != OWNER_ID: return
-    args = message.text.split()
-    if len(args) < 2: bot.reply_to(message, f"❌ /setdailybonusmin [сумма] (сейчас: {owner_settings['daily_bonus_min']})"); return
-    try: val = int(args[1])
-    except: bot.reply_to(message, "❌ Число!"); return
-    owner_settings["daily_bonus_min"] = val
-    save_all_data()
-    bot.reply_to(message, f"✅ Мин. бонус: {val} 🧱")
-
-@bot.message_handler(commands=['setdailybonusmax'])
-def setdailybonusmax_cmd(message):
-    if message.from_user.id != OWNER_ID: return
-    args = message.text.split()
-    if len(args) < 2: bot.reply_to(message, f"❌ /setdailybonusmax [сумма] (сейчас: {owner_settings['daily_bonus_max']})"); return
-    try: val = int(args[1])
-    except: bot.reply_to(message, "❌ Число!"); return
-    owner_settings["daily_bonus_max"] = val
-    save_all_data()
-    bot.reply_to(message, f"✅ Макс. бонус: {val} 🧱")
-
-# ===== КАЗИНО =====
+# ===== КАЗИНО / КРАЖА / БОСС =====
 @bot.message_handler(commands=['casino'])
 def casino_cmd(message):
     args = message.text.split()
     if len(args) < 2: bot.reply_to(message, "❌ /casino [ставка]"); return
-    try: bet = int(args[1])
-    except: bot.reply_to(message, "❌ Число!"); return
-    if bet < 10: bot.reply_to(message, "❌ Минимум 10 🧱!"); return
-    user_id = message.from_user.id
-    if not spend_bricks(user_id, bet): bot.reply_to(message, "❌ Недостаточно!"); return
-    
+    bet = int(args[1])
+    if bet < 10: bot.reply_to(message, "❌ Мин. 10🧱!"); return
+    uid = message.from_user.id
+    if not spend_bricks(uid, bet): bot.reply_to(message, "❌ Недостаточно!"); return
     if random.random() < owner_settings["casino_odds"]:
-        win = bet * 2
-        add_bricks(user_id, win)
-        save_all_data()
-        bot.reply_to(message, f"🎰 Выигрыш! +{win} 🧱\nБаланс: {get_balance(user_id)['balance']:,} 🧱")
+        win = bet * 2; add_bricks(uid, win); save_all_data()
+        bot.reply_to(message, f"🎰 +{win}🧱 | Баланс: {get_balance(uid)['balance']:,}")
     else:
-        save_all_data()
-        bot.reply_to(message, f"🎰 Проигрыш! -{bet} 🧱\nБаланс: {get_balance(user_id)['balance']:,} 🧱")
+        save_all_data(); bot.reply_to(message, f"🎰 -{bet}🧱 | Баланс: {get_balance(uid)['balance']:,}")
 
-# ===== КРАЖА (VIP 2+) =====
 @bot.message_handler(commands=['steal'])
 def steal_cmd(message):
-    if get_vip(message.from_user.id)["level"] < 2:
-        bot.reply_to(message, "❌ Только для VIP+!")
-        return
-    user_id = message.from_user.id
-    last_steal = steal_times.get(user_id)
-    if last_steal:
-        elapsed = datetime.now() - last_steal
-        if elapsed < timedelta(minutes=10):
-            remaining = timedelta(minutes=10) - elapsed
-            bot.reply_to(message, f"⏳ Жди {remaining.seconds // 60} мин. {remaining.seconds % 60} сек.")
-            return
-    if not message.reply_to_message: bot.reply_to(message, "❌ Ответь на сообщение жертвы!"); return
-    victim = message.reply_to_message.from_user
-    if victim.id == user_id: bot.reply_to(message, "❌ Нельзя украсть у себя!"); return
-    victim_bal = get_balance(victim.id)
-    if victim_bal["balance"] < 10: bot.reply_to(message, "❌ У жертвы меньше 10 🧱!"); return
-    amount = random.randint(10, min(100, victim_bal["balance"]))
-    
+    if get_vip(message.from_user.id)["level"] < 2: bot.reply_to(message, "❌ VIP+!"); return
+    uid = message.from_user.id
+    last = steal_times.get(uid)
+    if last and datetime.now() - last < timedelta(minutes=10):
+        r = timedelta(minutes=10) - (datetime.now() - last); bot.reply_to(message, f"⏳ {r.seconds//60}м {r.seconds%60}с"); return
+    if not message.reply_to_message: bot.reply_to(message, "❌ Ответь!"); return
+    v = message.reply_to_message.from_user
+    if v.id == uid: bot.reply_to(message, "❌ Нельзя себе!"); return
+    vb = get_balance(v.id)
+    if vb["balance"] < 10: bot.reply_to(message, "❌ <10🧱!"); return
+    amt = random.randint(10, min(100, vb["balance"]))
     if random.random() < owner_settings["steal_chance"]:
-        victim_bal["balance"] -= amount
-        add_bricks(user_id, amount)
-        steal_times[user_id] = datetime.now()
-        save_all_data()
-        bot.reply_to(message, f"🦹 Ты украл {amount} 🧱 у {victim.first_name}!\nБаланс: {get_balance(user_id)['balance']:,} 🧱")
+        vb["balance"] -= amt; add_bricks(uid, amt); steal_times[uid] = datetime.now(); save_all_data()
+        bot.reply_to(message, f"🦹 +{amt}🧱 | Баланс: {get_balance(uid)['balance']:,}")
     else:
-        penalty = random.randint(5, 20)
-        if get_balance(user_id)["balance"] >= penalty:
-            spend_bricks(user_id, penalty)
-            add_bricks(victim.id, penalty)
-            steal_times[user_id] = datetime.now()
-            save_all_data()
-            bot.reply_to(message, f"🚨 Провал! Штраф {penalty} 🧱 → {victim.first_name}.")
-        else:
-            bot.reply_to(message, f"🚨 Провал! Но нет денег на штраф. Повезло...")
+        pen = random.randint(5, 20)
+        if get_balance(uid)["balance"] >= pen:
+            spend_bricks(uid, pen); add_bricks(v.id, pen); steal_times[uid] = datetime.now(); save_all_data()
+            bot.reply_to(message, f"🚨 Штраф {pen}🧱 → {v.first_name}")
+        else: bot.reply_to(message, "🚨 Провал! Нет денег на штраф.")
 
-# ===== БОСС (VIP 3+) =====
 @bot.message_handler(commands=['boss'])
 def boss_cmd(message):
-    if get_vip(message.from_user.id)["level"] < 3:
-        bot.reply_to(message, "❌ Только для LEGEND+!")
-        return
-    cid = message.chat.id
-    user_id = message.from_user.id
-    if cid in boss_data and boss_data[cid].get("active"):
-        bot.reply_to(message, "⚔️ Босс уже активен! /joinboss")
-        return
+    if get_vip(message.from_user.id)["level"] < 3: bot.reply_to(message, "❌ LEGEND+!"); return
+    cid, uid = message.chat.id, message.from_user.id
+    if cid in boss_data and boss_data[cid].get("active"): bot.reply_to(message, "⚔️ Уже есть! /joinboss"); return
     hp = random.choice([2500, 3000])
-    boss_data[cid] = {"hp": hp, "max_hp": hp, "players": [user_id], "active": True, "started": False, "damage_dealt": {}}
-    markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton("⚔️ Присоединиться!", callback_data="joinboss"))
-    markup.add(telebot.types.InlineKeyboardButton("👊 Атаковать!", callback_data="attackboss"))
-    bot.send_message(cid, f"🐉 **БОСС!**\n❤️ HP: {hp}/{hp}\n👥 1/4\nНужно 4 чел.!", parse_mode="Markdown", reply_markup=markup)
+    boss_data[cid] = {"hp": hp, "max_hp": hp, "players": [uid], "active": True, "started": False, "damage_dealt": {}}
+    mk = telebot.types.InlineKeyboardMarkup()
+    mk.add(telebot.types.InlineKeyboardButton("⚔️ Присоединиться!", callback_data="joinboss"))
+    mk.add(telebot.types.InlineKeyboardButton("👊 Атаковать!", callback_data="attackboss"))
+    bot.send_message(cid, f"🐉 **БОСС!**\n❤️ {hp}/{hp}\n👥 1/4", parse_mode="Markdown", reply_markup=mk)
 
 @bot.callback_query_handler(func=lambda c: c.data == "joinboss")
 def join_boss(call):
-    cid = call.message.chat.id
-    user_id = call.from_user.id
-    if cid not in boss_data or not boss_data[cid].get("active"): bot.answer_callback_query(call.id, "❌ Нет босса!"); return
-    boss = boss_data[cid]
-    if user_id in boss["players"]: bot.answer_callback_query(call.id, "❌ Ты уже в битве!"); return
-    if boss["started"]: bot.answer_callback_query(call.id, "❌ Битва началась!"); return
-    boss["players"].append(user_id)
-    if len(boss["players"]) >= 4:
-        boss["started"] = True
-        markup = telebot.types.InlineKeyboardMarkup()
-        markup.add(telebot.types.InlineKeyboardButton("👊 Атаковать!", callback_data="attackboss"))
-        names = ", ".join(get_user_name(p, cid) for p in boss["players"])
-        bot.edit_message_text(f"🐉 **БОСС!**\n❤️ HP: {boss['hp']}/{boss['max_hp']}\n👥 {names}\nАтакуйте!", parse_mode="Markdown", chat_id=cid, message_id=call.message.message_id, reply_markup=markup)
-        bot.answer_callback_query(call.id, "⚔️ Битва началась!")
+    cid, uid = call.message.chat.id, call.from_user.id
+    if cid not in boss_data or not boss_data[cid].get("active"): bot.answer_callback_query(call.id, "❌"); return
+    b = boss_data[cid]
+    if uid in b["players"]: bot.answer_callback_query(call.id, "❌ Уже в битве!"); return
+    if b["started"]: bot.answer_callback_query(call.id, "❌ Началась!"); return
+    b["players"].append(uid)
+    mk = telebot.types.InlineKeyboardMarkup()
+    if len(b["players"]) >= 4:
+        b["started"] = True; mk.add(telebot.types.InlineKeyboardButton("👊 Атаковать!", callback_data="attackboss"))
+        bot.edit_message_text(f"🐉 **БОСС!**\n❤️ {b['hp']}/{b['max_hp']}\n👥 {', '.join(get_user_name(p,cid) for p in b['players'])}\nАтакуйте!", parse_mode="Markdown", chat_id=cid, message_id=call.message.message_id, reply_markup=mk)
+        bot.answer_callback_query(call.id, "⚔️ Началась!")
     else:
-        names = ", ".join(get_user_name(p, cid) for p in boss["players"])
-        markup = telebot.types.InlineKeyboardMarkup()
-        markup.add(telebot.types.InlineKeyboardButton("⚔️ Присоединиться!", callback_data="joinboss"))
-        markup.add(telebot.types.InlineKeyboardButton("👊 Атаковать!", callback_data="attackboss"))
-        bot.edit_message_text(f"🐉 **БОСС!**\n❤️ HP: {boss['hp']}/{boss['max_hp']}\n👥 {len(boss['players'])}/4\n{names}\nНужно ещё {4-len(boss['players'])}", parse_mode="Markdown", chat_id=cid, message_id=call.message.message_id, reply_markup=markup)
-        bot.answer_callback_query(call.id, f"✅ {len(boss['players'])}/4")
+        mk.add(telebot.types.InlineKeyboardButton("⚔️ Присоединиться!", callback_data="joinboss"))
+        mk.add(telebot.types.InlineKeyboardButton("👊 Атаковать!", callback_data="attackboss"))
+        bot.edit_message_text(f"🐉 **БОСС!**\n❤️ {b['hp']}/{b['max_hp']}\n👥 {len(b['players'])}/4\nНужно ещё {4-len(b['players'])}", parse_mode="Markdown", chat_id=cid, message_id=call.message.message_id, reply_markup=mk)
+        bot.answer_callback_query(call.id, f"✅ {len(b['players'])}/4")
 
 @bot.callback_query_handler(func=lambda c: c.data == "attackboss")
 def attack_boss(call):
-    cid = call.message.chat.id
-    user_id = call.from_user.id
-    if cid not in boss_data or not boss_data[cid].get("active"): bot.answer_callback_query(call.id, "❌ Нет босса!"); return
-    boss = boss_data[cid]
-    if user_id not in boss["players"]: bot.answer_callback_query(call.id, "❌ Не в битве!"); return
-    if not boss["started"]: bot.answer_callback_query(call.id, "⏳ Ждём игроков!"); return
-    damage = random.randint(50, 200)
-    boss["hp"] -= damage
-    boss["damage_dealt"][user_id] = boss["damage_dealt"].get(user_id, 0) + damage
-    
-    if boss["hp"] <= 0:
-        boss["hp"] = 0; boss["active"] = False
-        reward = random.randint(100, 500) // len(boss["players"])
-        for pid in boss["players"]: add_bricks(pid, reward)
-        top = sorted(boss["damage_dealt"].items(), key=lambda x: x[1], reverse=True)
-        mvp_name = get_user_name(top[0][0], cid) if top else "Никто"
-        text = f"🎉 **БОСС ПОВЕРЖЕН!**\n💰 Награда: {reward} 🧱\n🏆 MVP: {mvp_name}\n📊 Урон:\n"
-        for pid, dmg in top: text += f"• {get_user_name(pid, cid)}: {dmg}\n"
-        del boss_data[cid]
-        save_all_data()
+    cid, uid = call.message.chat.id, call.from_user.id
+    if cid not in boss_data or not boss_data[cid].get("active") or uid not in boss_data[cid].get("players", []): bot.answer_callback_query(call.id, "❌"); return
+    b = boss_data[cid]
+    if not b["started"]: bot.answer_callback_query(call.id, "⏳ Ждём!"); return
+    dmg = random.randint(50, 200); b["hp"] -= dmg
+    b["damage_dealt"][uid] = b["damage_dealt"].get(uid, 0) + dmg
+    if b["hp"] <= 0:
+        b["hp"] = 0; b["active"] = False
+        reward = random.randint(100, 500) // len(b["players"])
+        for p in b["players"]: add_bricks(p, reward)
+        top = sorted(b["damage_dealt"].items(), key=lambda x: x[1], reverse=True)
+        text = f"🎉 **ПОБЕДА!**\n💰 {reward}🧱\n🏆 MVP: {get_user_name(top[0][0], cid)}\n📊 Урон:\n" + "\n".join(f"• {get_user_name(p,cid)}: {d}" for p,d in top)
+        del boss_data[cid]; save_all_data()
         bot.edit_message_text(text, parse_mode="Markdown", chat_id=cid, message_id=call.message.message_id)
-        bot.answer_callback_query(call.id, f"💥 {damage} урона! Победа!")
+        bot.answer_callback_query(call.id, f"💥 +{dmg}!")
     else:
-        markup = telebot.types.InlineKeyboardMarkup()
-        markup.add(telebot.types.InlineKeyboardButton("👊 Атаковать!", callback_data="attackboss"))
-        names = ", ".join(get_user_name(p, cid) for p in boss["players"])
-        bot.edit_message_text(f"🐉 **БОСС!**\n❤️ HP: {boss['hp']}/{boss['max_hp']}\n👥 {names}\nАтакуйте!", parse_mode="Markdown", chat_id=cid, message_id=call.message.message_id, reply_markup=markup)
-        bot.answer_callback_query(call.id, f"👊 {damage} урона! HP: {boss['hp']}")
+        mk = telebot.types.InlineKeyboardMarkup(); mk.add(telebot.types.InlineKeyboardButton("👊 Атаковать!", callback_data="attackboss"))
+        bot.edit_message_text(f"🐉 **БОСС!**\n❤️ {b['hp']}/{b['max_hp']}\n👥 {', '.join(get_user_name(p,cid) for p in b['players'])}", parse_mode="Markdown", chat_id=cid, message_id=call.message.message_id, reply_markup=mk)
+        bot.answer_callback_query(call.id, f"👊 -{dmg} | HP: {b['hp']}")
 
 # ===== VIP-КОМАНДЫ =====
 @bot.message_handler(commands=['viphelp'])
 def vip_help(message):
-    if not is_vip(message.from_user.id): bot.reply_to(message, "❌ Только VIP!"); return
+    if not is_vip(message.from_user.id): return
     bot.reply_to(message, "💎 VIP: /flex, /vipcolor, /spotlight, /loud, /ghost, /magic, /slow\n🌟 VIP+: + /announce, /rainbow, /reverse, /secret, /countdown, /steal\n💎 LEGEND+: + /say, /echo, /bomb, /weather, /boss")
 
 @bot.message_handler(commands=['flex'])
 def flex_cmd(message):
     if not is_vip(message.from_user.id): return
-    vip = get_vip(message.from_user.id)
-    info = VIP_LEVELS[vip["level"]]
-    bot.send_message(message.chat.id, f"💎 {info['prefix']} **{message.from_user.first_name}**\nУровень: {info['color']} {info['name']}\n💰 {get_balance(message.from_user.id)['balance']:,} 🧱", parse_mode="Markdown")
+    v = get_vip(message.from_user.id); i = VIP_LEVELS[v["level"]]
+    bot.send_message(message.chat.id, f"💎 {i['prefix']} **{message.from_user.first_name}**\n{i['color']} {i['name']}\n💰 {get_balance(message.from_user.id)['balance']:,}🧱", parse_mode="Markdown")
 
 @bot.message_handler(commands=['vipcolor'])
 def vipcolor_cmd(message):
     if not is_vip(message.from_user.id): return
-    args = message.text.split()
-    if len(args) < 2: bot.reply_to(message, f"❌ /vipcolor [{'/'.join(VIP_COLORS)}]"); return
-    if args[1].lower() not in VIP_COLORS: bot.reply_to(message, "❌ Недоступный цвет!"); return
-    vip_data[str(message.from_user.id)]["color"] = args[1].lower()
-    save_all_data()
-    bot.reply_to(message, f"✅ Цвет: {args[1]}")
+    c = message.text.split()[1].lower() if len(message.text.split()) > 1 else ""
+    if c not in VIP_COLORS: bot.reply_to(message, f"❌ {', '.join(VIP_COLORS)}"); return
+    vip_data[str(message.from_user.id)]["color"] = c; save_all_data(); bot.reply_to(message, f"✅ {c}")
 
-@bot.message_handler(commands=['spotlight'])
-def spotlight_cmd(message):
-    if not is_vip(message.from_user.id): return
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2: bot.reply_to(message, "❌ /spotlight [текст]"); return
-    bot.send_message(message.chat.id, f"🔦 **В центре внимания:**\n\n✨ {args[1]} ✨", parse_mode="Markdown")
-
-@bot.message_handler(commands=['loud'])
-def loud_cmd(message):
-    if not is_vip(message.from_user.id): return
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2: bot.reply_to(message, "❌ /loud [текст]"); return
-    bot.send_message(message.chat.id, f"📢 {args[1].upper()} 📢")
-
-@bot.message_handler(commands=['ghost'])
-def ghost_cmd(message):
-    if not is_vip(message.from_user.id): return
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2: bot.reply_to(message, "❌ /ghost [текст]"); return
-    try: bot.delete_message(message.chat.id, message.message_id)
-    except: pass
-    bot.send_message(message.chat.id, f"👻 **Призрак шепчет:** {args[1]}", parse_mode="Markdown")
-
-@bot.message_handler(commands=['magic'])
-def magic_cmd(message):
-    if not is_vip(message.from_user.id): return
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2: bot.reply_to(message, "❌ /magic [текст]"); return
-    emojis = ["✨", "🌟", "💫", "⭐", "🔮", "💎", "🎩", "🪄"]
-    text = ' '.join(f"{char} {random.choice(emojis)}" for char in args[1])
-    bot.send_message(message.chat.id, f"🎩 {text}")
-
-@bot.message_handler(commands=['slow'])
-def slow_cmd(message):
-    if not is_vip(message.from_user.id): return
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2: bot.reply_to(message, "❌ /slow [текст]"); return
-    for char in args[1]: bot.send_message(message.chat.id, char); time.sleep(0.3)
-
-@bot.message_handler(commands=['announce'])
-def announce_cmd(message):
-    if get_vip(message.from_user.id)["level"] < 2: return
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2: bot.reply_to(message, "❌ /announce [текст]"); return
-    msg = bot.send_message(message.chat.id, f"📢 **ОБЪЯВЛЕНИЕ**\n\n{args[1]}", parse_mode="Markdown")
-    try: bot.pin_chat_message(message.chat.id, msg.message_id)
-    except: pass
-
-@bot.message_handler(commands=['rainbow'])
-def rainbow_cmd(message):
-    if get_vip(message.from_user.id)["level"] < 2: return
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2: bot.reply_to(message, "❌ /rainbow [текст]"); return
-    colors = ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣"]
-    bot.send_message(message.chat.id, ' '.join(f"{colors[i % len(colors)]} {char}" for i, char in enumerate(args[1])))
-
-@bot.message_handler(commands=['reverse'])
-def reverse_cmd(message):
-    if get_vip(message.from_user.id)["level"] < 2: return
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2: bot.reply_to(message, "❌ /reverse [текст]"); return
-    bot.send_message(message.chat.id, args[1][::-1])
-
-@bot.message_handler(commands=['secret'])
-def secret_cmd(message):
-    if get_vip(message.from_user.id)["level"] < 2: return
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2: bot.reply_to(message, "❌ /secret [текст]"); return
-    bot.send_message(message.chat.id, f"🔒 ||{args[1]}||", parse_mode="Markdown")
-
-@bot.message_handler(commands=['countdown'])
-def countdown_cmd(message):
-    if get_vip(message.from_user.id)["level"] < 2: return
-    args = message.text.split()
-    if len(args) < 2: bot.reply_to(message, "❌ /countdown [сек]"); return
-    try: secs = min(int(args[1]), 10)
-    except: bot.reply_to(message, "❌ Число!"); return
-    msg = bot.send_message(message.chat.id, f"⏳ {secs}...")
-    for i in range(secs-1, 0, -1): time.sleep(1); bot.edit_message_text(f"⏳ {i}...", message.chat.id, msg.message_id)
-    bot.edit_message_text("🚀 ПУСК!", message.chat.id, msg.message_id)
-
-@bot.message_handler(commands=['say'])
-def say_cmd(message):
-    if get_vip(message.from_user.id)["level"] < 3: return
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2: bot.reply_to(message, "❌ /say [текст]"); return
-    try: bot.delete_message(message.chat.id, message.message_id)
-    except: pass
-    bot.send_message(message.chat.id, args[1])
-
-@bot.message_handler(commands=['echo'])
-def echo_cmd(message):
-    if get_vip(message.from_user.id)["level"] < 3: return
-    args = message.text.split(maxsplit=2)
-    if len(args) < 3: bot.reply_to(message, "❌ /echo [число] [текст]"); return
-    try: count = min(int(args[1]), 5)
-    except: bot.reply_to(message, "❌ Число!"); return
-    for _ in range(count): bot.send_message(message.chat.id, args[2]); time.sleep(0.5)
-
-@bot.message_handler(commands=['bomb'])
-def bomb_cmd(message):
-    if get_vip(message.from_user.id)["level"] < 3: return
-    args = message.text.split()
-    secs = min(int(args[1]) if len(args) > 1 else 5, 10)
-    msg = bot.send_message(message.chat.id, f"💣 {secs}...")
-    for i in range(secs-1, 0, -1): time.sleep(1); bot.edit_message_text(f"💣 {i}...", message.chat.id, msg.message_id)
-    bot.edit_message_text("💥 БУМ! 😄", message.chat.id, msg.message_id)
-
-@bot.message_handler(commands=['weather'])
-def weather_cmd(message):
-    if get_vip(message.from_user.id)["level"] < 3: return
-    weathers = ["☀️ Солнечно", "🌧 Дождь", "⛈ Гроза", "❄️ Снег", "🌪 Ураган", "🌈 Радуга", "🌙 Ночь"]
-    bot.send_message(message.chat.id, f"🌤 {random.choice(weathers)}", parse_mode="Markdown")
+@bot.message_handler(commands=['spotlight','loud','ghost','magic','slow','announce','rainbow','reverse','secret','countdown','say','echo','bomb','weather'])
+def vip_commands(message):
+    cmd = message.text.split()[0][1:]
+    lvl = get_vip(message.from_user.id)["level"]
+    if lvl < 1: return
+    if cmd in ['announce','rainbow','reverse','secret','countdown'] and lvl < 2: bot.reply_to(message, "❌ VIP+!"); return
+    if cmd in ['say','echo','bomb','weather'] and lvl < 3: bot.reply_to(message, "❌ LEGEND+!"); return
+    
+    args = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else ""
+    if cmd == "spotlight" and args: bot.send_message(message.chat.id, f"🔦 **В центре внимания:**\n\n✨ {args} ✨", parse_mode="Markdown")
+    elif cmd == "loud" and args: bot.send_message(message.chat.id, f"📢 {args.upper()} 📢")
+    elif cmd == "ghost" and args:
+        try: bot.delete_message(message.chat.id, message.message_id)
+        except: pass
+        bot.send_message(message.chat.id, f"👻 **Призрак:** {args}", parse_mode="Markdown")
+    elif cmd == "magic" and args: bot.send_message(message.chat.id, f"🎩 {' '.join(f'{c} {random.choice(['✨','🌟','💫','⭐','🔮','💎','🎩','🪄'])}' for c in args)}")
+    elif cmd == "slow" and args:
+        for c in args: bot.send_message(message.chat.id, c); time.sleep(0.3)
+    elif cmd == "announce" and args:
+        msg = bot.send_message(message.chat.id, f"📢 **ОБЪЯВЛЕНИЕ**\n\n{args}", parse_mode="Markdown")
+        try: bot.pin_chat_message(message.chat.id, msg.message_id)
+        except: pass
+    elif cmd == "rainbow" and args: bot.send_message(message.chat.id, ' '.join(f"{['🔴','🟠','🟡','🟢','🔵','🟣'][i%6]} {c}" for i,c in enumerate(args)))
+    elif cmd == "reverse" and args: bot.send_message(message.chat.id, args[::-1])
+    elif cmd == "secret" and args: bot.send_message(message.chat.id, f"🔒 ||{args}||", parse_mode="Markdown")
+    elif cmd == "countdown":
+        try: secs = min(int(args.split()[0]), 10)
+        except: secs = 5
+        msg = bot.send_message(message.chat.id, f"⏳ {secs}...")
+        for i in range(secs-1, 0, -1): time.sleep(1); bot.edit_message_text(f"⏳ {i}...", message.chat.id, msg.message_id)
+        bot.edit_message_text("🚀 ПУСК!", message.chat.id, msg.message_id)
+    elif cmd == "say" and args:
+        try: bot.delete_message(message.chat.id, message.message_id)
+        except: pass
+        bot.send_message(message.chat.id, args)
+    elif cmd == "echo":
+        parts = message.text.split(maxsplit=2)
+        if len(parts) >= 3:
+            try: count = min(int(parts[1]), 5)
+            except: count = 1
+            for _ in range(count): bot.send_message(message.chat.id, parts[2]); time.sleep(0.5)
+    elif cmd == "bomb":
+        secs = int(args.split()[0]) if args and args.split()[0].isdigit() else 5
+        secs = min(secs, 10)
+        msg = bot.send_message(message.chat.id, f"💣 {secs}...")
+        for i in range(secs-1, 0, -1): time.sleep(1); bot.edit_message_text(f"💣 {i}...", message.chat.id, msg.message_id)
+        bot.edit_message_text("💥 БУМ! 😄", message.chat.id, msg.message_id)
+    elif cmd == "weather": bot.send_message(message.chat.id, f"🌤 {random.choice(['☀️ Солнечно','🌧 Дождь','⛈ Гроза','❄️ Снег','🌪 Ураган','🌈 Радуга','🌙 Ночь'])}", parse_mode="Markdown")
 
 # ===== СООБЩЕНИЯ В ЛС =====
 @bot.message_handler(commands=['msg'])
 def msg_cmd(message):
     if message.from_user.id != OWNER_ID: return
-    args = message.text.split(maxsplit=2)
-    if len(args) < 3: bot.reply_to(message, "❌ /msg [юзернейм/ID] [текст]"); return
-    target, text = args[1], args[2]
-    target_id = None
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 3: bot.reply_to(message, "❌ /msg [ID/юзернейм] [текст]"); return
+    target, text = parts[1], parts[2]
+    tid = None
     if target.startswith("@"): target = target[1:]
     else:
-        try: target_id = int(target)
+        try: tid = int(target)
         except: bot.reply_to(message, "❌ Неверно!"); return
     try:
-        if target_id: bot.send_message(target_id, f"📨 **Сообщение от администрации:**\n\n{text}", parse_mode="Markdown")
-        else: bot.send_message(f"@{target}", f"📨 **Сообщение от администрации:**\n\n{text}", parse_mode="Markdown")
+        if tid: bot.send_message(tid, f"📨 **Сообщение администрации:**\n\n{text}", parse_mode="Markdown")
+        else: bot.send_message(f"@{target}", f"📨 **Сообщение администрации:**\n\n{text}", parse_mode="Markdown")
         bot.reply_to(message, f"✅ {target}")
-    except Exception as e: bot.reply_to(message, f"❌ {e}")
+    except: bot.reply_to(message, "❌ Не удалось!")
 
 @bot.message_handler(commands=['dmall'])
 def dmall_cmd(message):
-    if message.from_user.id != OWNER_ID:
-        bot.reply_to(message, "❌ Только владелец бота!")
-        return
+    if message.from_user.id != OWNER_ID: return
     args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        bot.reply_to(message, "❌ /dmall [сообщение]")
-        return
-    text = args[1]
-    sent = 0
-    failed = 0
-    status_msg = bot.reply_to(message, "⏳ Начинаю рассылку...")
-    
+    if len(args) < 2: bot.reply_to(message, "❌ /dmall [текст]"); return
+    text = args[1]; sent = 0; failed = 0
+    status_msg = bot.reply_to(message, "⏳ Рассылка...")
     for uid in list(economy.keys()):
-        try:
-            bot.send_message(int(uid), f"📢 **Массовое уведомление:**\n\n{text}", parse_mode="Markdown")
-            sent += 1
-            time.sleep(0.05)
-        except:
-            failed += 1
-    
-    try:
-        bot.edit_message_text(
-            f"✅ Рассылка завершена!\n📤 Отправлено: {sent}\n❌ Не удалось: {failed}",
-            message.chat.id,
-            status_msg.message_id
-        )
-    except:
-        bot.send_message(message.chat.id, f"✅ Рассылка завершена!\n📤 Отправлено: {sent}\n❌ Не удалось: {failed}")
+        try: bot.send_message(int(uid), f"📢 {text}", parse_mode="Markdown"); sent += 1; time.sleep(0.05)
+        except: failed += 1
+    try: bot.edit_message_text(f"✅ Отправлено: {sent}\n❌ Не удалось: {failed}", message.chat.id, status_msg.message_id)
+    except: bot.send_message(message.chat.id, f"✅ {sent} | ❌ {failed}")
 
 @bot.message_handler(commands=['botlink'])
 def botlink_cmd(message):
-    bot.reply_to(message, 
-        "🤖 Чтобы получать уведомления от бота, напиши ему в ЛС:\n"
-        "👉 @Wall_bot\n"
-        "И нажми /start\n\n"
-        "После этого ты будешь получать важные объявления!")
+    bot.reply_to(message, "🤖 Напиши @Wall_bot в ЛС и нажми /start чтобы получать уведомления!")
 
-# ===== ОБЩИЕ КОМАНДЫ =====
+# ===== ОСНОВНЫЕ КОМАНДЫ =====
 @bot.message_handler(commands=['help'])
 def help_cmd(message):
-    text = """🧱 **Wall**
-👤 /id, /info, /report, /rules, /staff, /translate, /anonym, /nick, /bio, /profile, /top, /meme, /balance, /work, /daily, /pay, /casino, /clan, /lyrics, /song, /youtube, /botlink
-🛡️ Ранг 1: /mute, /mutetime, /warn, /kick. Ранг 2: + /bantime, /pin, /unpin. Ранг 3: + /ban, /unban. Ранг 4: + /raising, /downgrade, /gg
-💬 RP: /hug, /kiss, /slap, /pat, /kill, /revive, /hugme, /cry, /laugh, /dance, /poke, /tickle, /highfive, /wink, /blush, /facepalm, /shrug, /angry, /bored, /confused, /hungry, /sleep, /wakeup, /yawn, /think
-💎 VIP: /viphelp"""
-    bot.reply_to(message, text, parse_mode="Markdown")
+    bot.reply_to(message, """🧱 **Wall**
+👤 /id /info /report /rules /staff /translate /anonym /nick /bio /profile /top /meme /balance /work /daily /pay /casino /clan /lyrics /song /youtube /botlink
+🛡️ Р1: /mute /mutetime /warn /kick | Р2: +/bantime /pin /unpin | Р3: +/ban /unban | Р4: +/raising /downgrade /gg
+💬 RP: /hug /kiss /slap /pat /kill /revive /hugme /cry /laugh /dance /poke /tickle /highfive /wink /blush /facepalm /shrug /angry /bored /confused /hungry /sleep /wakeup /yawn /think
+💎 VIP: /viphelp""", parse_mode="Markdown")
 
 @bot.message_handler(commands=['id'])
 def id_cmd(message):
@@ -1218,50 +908,41 @@ def id_cmd(message):
 def info_cmd(message):
     u = message.reply_to_message.from_user if message.reply_to_message else message.from_user
     cid, uid = message.chat.id, u.id
-    profile, vip, clan = get_profile(uid), get_vip(uid), get_user_clan(uid)
-    try: status = bot.get_chat_member(cid, uid).status
-    except: status = "?"
+    p, vip, clan = get_profile(uid), get_vip(uid), get_user_clan(uid)
+    try: st = bot.get_chat_member(cid, uid).status
+    except: st = "?"
     warns = warns_data.get(uid, {}).get(cid, [])
-    mute_info = mutes_data.get(uid, {}).get(cid)
-    muted = f"Да (до {mute_info.strftime('%H:%M')})" if mute_info else "Нет"
+    mi = mutes_data.get(uid, {}).get(cid)
+    muted = f"Да (до {mi.strftime('%H:%M')})" if mi else "Нет"
     banned = bans_data.get(uid, {}).get(cid, False)
-    rank = get_rank(cid, uid)
-    rn = {0:"Участник", 1:"Модератор", 2:"Мл. владелец", 3:"Пом. владельца", 4:"Владелец"}
-    vip_text = f"{VIP_LEVELS[vip['level']]['color']} {VIP_LEVELS[vip['level']]['name']}" if vip['level'] > 0 else "Нет"
-    text = f"""📊 **Информация**
-👤 {get_vip_display(uid, profile['nick'] or u.first_name)}
-🆔 `{uid}`
-💎 VIP: {vip_text}
-🏰 Клан: {clan or 'Нет'}
-👑 Статус: {status}
-🎖 Ранг: {rn[rank]} ({rank})
-⚠️ Варны: {len(warns)}/3
-🔇 Мут: {muted}
-🚫 Бан: {'Да' if banned else 'Нет'}"""
+    rn = {0:"Участник",1:"Модератор",2:"Мл. владелец",3:"Пом. владельца",4:"Владелец"}
+    vt = f"{VIP_LEVELS[vip['level']]['color']} {VIP_LEVELS[vip['level']]['name']}" if vip['level']>0 else "Нет"
+    text = f"""📊 **Инфо**
+👤 {get_vip_display(uid, p['nick'] or u.first_name)}
+🆔 `{uid}` | 💎 {vt}
+🏰 {clan or 'Нет'} | 👑 {st}
+🎖 {rn[get_rank(cid, uid)]} | ⚠️ {len(warns)}/3
+🔇 {muted} | 🚫 {'Да' if banned else 'Нет'}"""
     bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['rules'])
-def rules_cmd(message): bot.reply_to(message, f"📜 **Правила:**\n\n{get_chat_data(message.chat.id)['rules']}", parse_mode="Markdown")
+def rules_cmd(message): bot.reply_to(message, f"📜 {get_chat_data(message.chat.id)['rules']}", parse_mode="Markdown")
 
 @bot.message_handler(commands=['report'])
 def report_cmd(message):
     if not message.reply_to_message: bot.reply_to(message, "❌ Ответь!"); return
-    args = message.text.split(maxsplit=1)
-    reason = args[1] if len(args) > 1 else "Не указана"
-    for adm in bot.get_chat_administrators(message.chat.id):
-        try: bot.send_message(adm.user.id, f"🚨 Репорт от {message.from_user.first_name}\nНа: {message.reply_to_message.from_user.first_name}\nПричина: {reason}")
+    reason = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else "Не указана"
+    for a in bot.get_chat_administrators(message.chat.id):
+        try: bot.send_message(a.user.id, f"🚨 {message.from_user.first_name}\n→ {message.reply_to_message.from_user.first_name}\n{reason}")
         except: pass
-    bot.reply_to(message, "✅ Отправлено!")
+    bot.reply_to(message, "✅")
 
 @bot.message_handler(commands=['staff'])
 def staff_list(message):
-    cid = message.chat.id
-    staff = staff_data.get(cid, {})
-    if not staff: bot.reply_to(message, "📭 Нет."); return
-    rn = {1:"Модератор", 2:"Мл. владелец", 3:"Пом. владельца"}
-    text = "🛡️ **Персонал:**\n\n"
-    for uid, rank in sorted(staff.items(), key=lambda x: x[1], reverse=True):
-        text += f"• {get_vip_display(uid, get_user_name(uid, cid))} — {rn[rank]} ({rank})\n"
+    cid = message.chat.id; st = staff_data.get(cid, {})
+    if not st: bot.reply_to(message, "📭"); return
+    rn = {1:"Мод",2:"Мл.вл",3:"Пом.вл"}
+    text = "🛡️ **Персонал:**\n\n" + "\n".join(f"• {get_vip_display(u, get_user_name(u,cid))} — {rn[r]} ({r})" for u,r in sorted(st.items(), key=lambda x: x[1], reverse=True))
     bot.reply_to(message, text, parse_mode="Markdown")
 
 # ===== ТОП =====
@@ -1269,29 +950,21 @@ def staff_list(message):
 def top_cmd(message):
     cid, today = message.chat.id, datetime.now().strftime("%Y-%m-%d")
     stats = daily_stats.get(cid, {}).get(today, {})
-    text = "🏆 **Топ-10 богачей**\n\n"
-    for i, (uid, data) in enumerate(sorted(economy.items(), key=lambda x: x[1].get("balance", 0), reverse=True)[:10], 1):
-        name = get_user_name(int(uid), cid)
-        text += f"{i}. {get_vip_display(int(uid), name)} — {data.get('balance', 0):,} 🧱\n"
-    text += "\n📊 **Топ активных:**\n"
+    text = "🏆 **Топ-10:**\n\n" + "\n".join(f"{i}. {get_vip_display(int(u), get_user_name(int(u),cid))} — {d.get('balance',0):,}🧱" for i,(u,d) in enumerate(sorted(economy.items(), key=lambda x: x[1].get("balance",0), reverse=True)[:10], 1))
+    text += "\n📊 **Активные:**\n"
     if stats and stats.get("users"):
-        for i, (uid, count) in enumerate(sorted(stats["users"].items(), key=lambda x: x[1], reverse=True)[:5], 1):
-            text += f"{i}. {get_user_name(uid, cid)} — {count} сообщ.\n"
-    else: text += "Нет данных.\n"
+        text += "\n".join(f"{i}. {get_user_name(u,cid)} — {c}с" for i,(u,c) in enumerate(sorted(stats["users"].items(), key=lambda x: x[1], reverse=True)[:5], 1))
+    else: text += "Нет данных."
     bot.reply_to(message, text, parse_mode="Markdown")
 
 # ===== ПЕРЕВОДЧИК / АНОНИМ / МЕМ =====
 @bot.message_handler(commands=['translate'])
 def translate_cmd(message):
     args = message.text.split(maxsplit=1)
-    if not message.reply_to_message and len(args) < 2: bot.reply_to(message, "❌ /translate [текст]"); return
-    text = message.reply_to_message.text if message.reply_to_message else args[1]
+    text = message.reply_to_message.text if message.reply_to_message else (args[1] if len(args) > 1 else "")
     if not text: bot.reply_to(message, "❌ Нет текста!"); return
-    try:
-        url = f"https://api.mymemory.translated.net/get?q={text}&langpair=auto|ru"
-        translated = requests.get(url).json()['responseData']['translatedText']
-        bot.reply_to(message, f"🌐 {translated}", parse_mode="Markdown")
-    except: bot.reply_to(message, "❌ Ошибка!")
+    try: bot.reply_to(message, f"🌐 {requests.get(f'https://api.mymemory.translated.net/get?q={text}&langpair=auto|ru').json()['responseData']['translatedText']}", parse_mode="Markdown")
+    except: bot.reply_to(message, "❌")
 
 @bot.message_handler(commands=['anonym'])
 def anonym_cmd(message):
@@ -1299,16 +972,16 @@ def anonym_cmd(message):
     if len(args) < 2: bot.reply_to(message, "❌ /anonym [текст]"); return
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
-    bot.send_message(message.chat.id, f"🕵️ **Аноним:**\n\n{args[1]}", parse_mode="Markdown")
+    bot.send_message(message.chat.id, f"🕵️ {args[1]}", parse_mode="Markdown")
 
 @bot.message_handler(commands=['meme'])
 def meme_cmd(message):
     try:
-        data = requests.get("https://meme-api.com/gimme").json()
-        bot.send_photo(message.chat.id, data['url'], caption=f"😄 {data['title']}")
-    except: bot.reply_to(message, "❌ Не удалось!")
+        d = requests.get("https://meme-api.com/gimme").json()
+        bot.send_photo(message.chat.id, d['url'], caption=f"😄 {d['title']}")
+    except: bot.reply_to(message, "❌")
 
-# ===== PIN / UNPIN =====
+# ===== PIN/UNPIN =====
 @bot.message_handler(commands=['pin'])
 def pin_cmd(message):
     if not has_rank(message.chat.id, message.from_user.id, 2): return
@@ -1319,86 +992,62 @@ def pin_cmd(message):
 @bot.message_handler(commands=['unpin'])
 def unpin_cmd(message):
     if not has_rank(message.chat.id, message.from_user.id, 2): return
-    try: bot.unpin_chat_message(message.chat.id); bot.reply_to(message, "📌 Откреплено!")
+    try: bot.unpin_chat_message(message.chat.id); bot.reply_to(message, "✅")
     except: bot.reply_to(message, "❌")
 
-# ===== BANLIST / MUTELIST =====
+# ===== BANLIST/MUTELIST =====
 @bot.message_handler(commands=['banlist'])
 def banlist_cmd(message):
     if not has_rank(message.chat.id, message.from_user.id, 2): return
     cid = message.chat.id
-    banned = [uid for uid, chats in bans_data.items() if cid in chats and chats[cid]]
-    if not banned: bot.reply_to(message, "📭 Нет."); return
-    text = "🚫 **Забаненные:**\n\n"
-    for uid in banned[:20]: text += f"• {get_user_name(int(uid), cid)} (`{uid}`)\n"
-    bot.reply_to(message, text, parse_mode="Markdown")
+    banned = [u for u,chs in bans_data.items() if cid in chs and chs[cid]]
+    if not banned: bot.reply_to(message, "📭"); return
+    bot.reply_to(message, "🚫 **Забанены:**\n\n" + "\n".join(f"• {get_user_name(int(u),cid)} (`{u}`)" for u in banned[:20]), parse_mode="Markdown")
 
 @bot.message_handler(commands=['mutelist'])
 def mutelist_cmd(message):
     if not has_rank(message.chat.id, message.from_user.id, 2): return
     cid = message.chat.id
-    muted = [uid for uid, chats in mutes_data.items() if cid in chats and chats[cid] and datetime.now() < chats[cid]]
-    if not muted: bot.reply_to(message, "📭 Нет."); return
-    text = "🔇 **Замученные:**\n\n"
-    for uid in muted[:20]:
-        mins = (mutes_data[uid][cid] - datetime.now()).seconds // 60
-        text += f"• {get_user_name(uid, cid)} — ещё {mins} мин.\n"
+    muted = [u for u,chs in mutes_data.items() if cid in chs and chs[cid] and datetime.now() < chs[cid]]
+    if not muted: bot.reply_to(message, "📭"); return
+    text = "🔇 **Замучены:**\n\n"
+    for u in muted[:20]: text += f"• {get_user_name(u,cid)} — ещё {(mutes_data[u][cid]-datetime.now()).seconds//60}м\n"
     bot.reply_to(message, text, parse_mode="Markdown")
 
-# ===== RP-КОМАНДЫ =====
+# ===== RP =====
 @bot.message_handler(commands=['hug','kiss','slap','pat','kill','revive','poke','tickle','highfive','wink'])
-def rp_reply_cmd(message):
-    cmd = message.text.split()[0][1:]
+def rp_reply(message):
     if not message.reply_to_message: bot.reply_to(message, "❌ Ответь!"); return
     u1, u2 = message.from_user.first_name, message.reply_to_message.from_user.first_name
-    actions = {
-        'hug': f"🤗 {u1} обнимает {u2}!", 'kiss': f"💋 {u1} целует {u2}!",
-        'slap': f"👋 {u1} даёт пощёчину {u2}!", 'pat': f"🤚 {u1} гладит {u2}!",
-        'kill': random.choice([f"🔪 {u1} убивает {u2}!", f"💀 {u1} нокаутирует {u2}!"]),
-        'revive': f"💖 {u1} воскрешает {u2}!", 'poke': f"👉 {u1} тыкает {u2}!",
-        'tickle': f"🤣 {u1} щекочет {u2}!", 'highfive': f"🖐 {u1} даёт пять {u2}!",
-        'wink': f"😉 {u1} подмигивает {u2}!"
-    }
-    bot.send_message(message.chat.id, actions.get(cmd, "🤷"))
+    acts = {'hug':f"🤗 {u1} обнимает {u2}!",'kiss':f"💋 {u1} целует {u2}!",'slap':f"👋 {u1} даёт пощёчину {u2}!",'pat':f"🤚 {u1} гладит {u2}!",'kill':random.choice([f"🔪 {u1} убивает {u2}!",f"💀 {u1} нокаутирует {u2}!"]),'revive':f"💖 {u1} воскрешает {u2}!",'poke':f"👉 {u1} тыкает {u2}!",'tickle':f"🤣 {u1} щекочет {u2}!",'highfive':f"🖐 {u1} даёт пять {u2}!",'wink':f"😉 {u1} подмигивает {u2}!"}
+    bot.send_message(message.chat.id, acts.get(message.text.split()[0][1:], "🤷"))
 
 @bot.message_handler(commands=['hugme','cry','laugh','dance','blush','facepalm','shrug','angry','bored','confused','hungry','sleep','wakeup','yawn','think'])
-def rp_self_cmd(message):
-    cmd = message.text.split()[0][1:]
+def rp_self(message):
     u = message.from_user.first_name
-    actions = {
-        'hugme': f"🤗 {u} обнимает себя...", 'cry': f"😢 {u} плачет...",
-        'laugh': random.choice([f"😂 {u} смеётся!", f"🤣 {u} умирает со смеху!"]),
-        'dance': f"💃 {u} танцует!", 'blush': f"😊 {u} краснеет...",
-        'facepalm': f"🤦 {u} фейспалм", 'shrug': f"🤷 {u} пожимает плечами",
-        'angry': f"😤 {u} злится!", 'bored': f"🥱 {u} скучает...",
-        'confused': f"🤔 {u} в замешательстве", 'hungry': f"🍔 {u} голоден!",
-        'sleep': f"😴 {u} спит...", 'wakeup': f"⏰ {u} просыпается!",
-        'yawn': f"🥱 {u} зевает...", 'think': f"🤔 {u} задумался..."
-    }
-    bot.send_message(message.chat.id, actions.get(cmd, "🤷"))
+    acts = {'hugme':f"🤗 {u} обнимает себя...",'cry':f"😢 {u} плачет...",'laugh':random.choice([f"😂 {u} смеётся!",f"🤣 {u} умирает со смеху!"]),'dance':f"💃 {u} танцует!",'blush':f"😊 {u} краснеет...",'facepalm':f"🤦 {u} фейспалм",'shrug':f"🤷 {u} пожимает плечами",'angry':f"😤 {u} злится!",'bored':f"🥱 {u} скучает...",'confused':f"🤔 {u} в замешательстве",'hungry':f"🍔 {u} голоден!",'sleep':f"😴 {u} спит...",'wakeup':f"⏰ {u} просыпается!",'yawn':f"🥱 {u} зевает...",'think':f"🤔 {u} задумался..."}
+    bot.send_message(message.chat.id, acts.get(message.text.split()[0][1:], "🤷"))
 
 # ===== ПОВЫШЕНИЕ/ПОНИЖЕНИЕ =====
 @bot.message_handler(commands=['raising'])
 def raising_cmd(message):
     if not is_owner_or_creator(message.chat.id, message.from_user.id): return
     if not message.reply_to_message: bot.reply_to(message, "❌ Ответь!"); return
-    u, cid, cr = message.reply_to_message.from_user, message.chat.id, get_rank(message.chat.id, message.reply_to_message.from_user.id)
-    if cr >= 3: bot.reply_to(message, "❌ Макс. ранг!"); return
-    set_rank(cid, u.id, cr + 1)
-    save_all_data()
-    rn = {1:"Модератор", 2:"Мл. владелец", 3:"Пом. владельца"}
-    bot.reply_to(message, f"⬆️ {u.first_name} → {rn[cr+1]}")
+    u, cid = message.reply_to_message.from_user, message.chat.id
+    cr = get_rank(cid, u.id)
+    if cr >= 3: bot.reply_to(message, "❌ Макс!"); return
+    set_rank(cid, u.id, cr+1); save_all_data()
+    bot.reply_to(message, f"⬆️ {u.first_name} → {cr+1}")
 
 @bot.message_handler(commands=['downgrade'])
 def downgrade_cmd(message):
     if not is_owner_or_creator(message.chat.id, message.from_user.id): return
     if not message.reply_to_message: bot.reply_to(message, "❌ Ответь!"); return
-    u, cid, cr = message.reply_to_message.from_user, message.chat.id, get_rank(message.chat.id, message.reply_to_message.from_user.id)
-    if cr <= 1: bot.reply_to(message, f"❌ Используй /gg"); return
-    set_rank(cid, u.id, cr - 1)
-    save_all_data()
-    rn = {1:"Модератор", 2:"Мл. владелец"}
-    bot.reply_to(message, f"⬇️ {u.first_name} → {rn.get(cr-1, 'Участник')}")
+    u, cid = message.reply_to_message.from_user, message.chat.id
+    cr = get_rank(cid, u.id)
+    if cr <= 1: bot.reply_to(message, "❌ /gg"); return
+    set_rank(cid, u.id, cr-1); save_all_data()
+    bot.reply_to(message, f"⬇️ {u.first_name} → {cr-1}")
 
 @bot.message_handler(commands=['gg'])
 def gg_cmd(message):
@@ -1406,9 +1055,8 @@ def gg_cmd(message):
     if not message.reply_to_message: bot.reply_to(message, "❌ Ответь!"); return
     u, cid = message.reply_to_message.from_user, message.chat.id
     if get_rank(cid, u.id) == 0: bot.reply_to(message, "❌ Без ранга!"); return
-    set_rank(cid, u.id, 0)
-    save_all_data()
-    bot.reply_to(message, f"💀 {u.first_name} лишён ранга!")
+    set_rank(cid, u.id, 0); save_all_data()
+    bot.reply_to(message, f"💀 {u.first_name} лишён!")
 
 # ===== МОДЕРАЦИЯ =====
 @bot.message_handler(commands=['warn'])
@@ -1416,24 +1064,16 @@ def warn_cmd(message):
     if not has_rank(message.chat.id, message.from_user.id, 1): return
     if not message.reply_to_message: bot.reply_to(message, "❌ Ответь!"); return
     u, cid = message.reply_to_message.from_user, message.chat.id
-    wr, tr = get_rank(cid, message.from_user.id), get_rank(cid, u.id)
-    if tr >= wr: bot.reply_to(message, f"❌ {random.choice(DENY_PHRASES)}"); return
-    args = message.text.split(maxsplit=1)
-    reason = args[1] if len(args) > 1 else "Нарушение"
+    if get_rank(cid, u.id) >= get_rank(cid, message.from_user.id): bot.reply_to(message, f"❌ {random.choice(DENY_PHRASES)}"); return
+    reason = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else "Нарушение"
     warns_data.setdefault(u.id, {}).setdefault(cid, []).append({"reason": reason, "time": datetime.now().isoformat(), "by": message.from_user.id})
     wc = len(warns_data[u.id][cid])
     if wc >= MAX_WARNS:
         cr = get_rank(cid, u.id)
-        if cr > 0:
-            set_rank(cid, u.id, cr - 1); warns_data[u.id][cid] = []
-            rn = {0:"Участник", 1:"Модератор", 2:"Мл. владелец", 3:"Пом. владельца"}
-            bot.reply_to(message, f"🚨 3/3! Ранг → {cr-1} ({rn[cr-1]})")
+        if cr > 0: set_rank(cid, u.id, cr-1); warns_data[u.id][cid] = []; bot.reply_to(message, f"🚨 3/3! Ранг → {cr-1}")
         else:
-            try:
-                bot.restrict_chat_member(cid, u.id, until_date=datetime.now() + timedelta(hours=1))
-                warns_data[u.id][cid] = []
-                bot.reply_to(message, f"🚨 3/3! Мут 1 час")
-            except: bot.reply_to(message, "⚠️ 3/3! Нужен мут!")
+            try: bot.restrict_chat_member(cid, u.id, until_date=datetime.now()+timedelta(hours=1)); warns_data[u.id][cid] = []; bot.reply_to(message, "🚨 3/3! Мут 1ч")
+            except: bot.reply_to(message, "⚠️ 3/3!")
     else: bot.reply_to(message, f"⚠️ {u.first_name} — {wc}/3\n{reason}")
     save_all_data()
 
@@ -1443,11 +1083,7 @@ def mute_cmd(message):
     if not message.reply_to_message: bot.reply_to(message, "❌ Ответь!"); return
     u, cid = message.reply_to_message.from_user, message.chat.id
     if get_rank(cid, u.id) >= get_rank(cid, message.from_user.id): bot.reply_to(message, f"❌ {random.choice(DENY_PHRASES)}"); return
-    try:
-        bot.restrict_chat_member(cid, u.id, until_date=datetime.now() + timedelta(days=3650))
-        mutes_data.setdefault(u.id, {})[cid] = datetime.now() + timedelta(days=3650)
-        save_all_data()
-        bot.reply_to(message, f"🔇 {u.first_name} мут навсегда!")
+    try: bot.restrict_chat_member(cid, u.id, until_date=datetime.now()+timedelta(days=3650)); mutes_data.setdefault(u.id, {})[cid] = datetime.now()+timedelta(days=3650); save_all_data(); bot.reply_to(message, f"🔇 {u.first_name} навсегда!")
     except: bot.reply_to(message, "❌")
 
 @bot.message_handler(commands=['mutetime'])
@@ -1456,15 +1092,9 @@ def mutetime_cmd(message):
     if not message.reply_to_message: bot.reply_to(message, "❌ Ответь!"); return
     u, cid = message.reply_to_message.from_user, message.chat.id
     if get_rank(cid, u.id) >= get_rank(cid, message.from_user.id): bot.reply_to(message, f"❌ {random.choice(DENY_PHRASES)}"); return
-    args = message.text.split()
-    if len(args) < 2: bot.reply_to(message, "❌ /mutetime [мин]"); return
-    try: mins = int(args[1])
-    except: bot.reply_to(message, "❌ Число!"); return
-    try:
-        bot.restrict_chat_member(cid, u.id, until_date=datetime.now() + timedelta(minutes=mins))
-        mutes_data.setdefault(u.id, {})[cid] = datetime.now() + timedelta(minutes=mins)
-        save_all_data()
-        bot.reply_to(message, f"🔇 {u.first_name} мут {mins} мин!")
+    try: mins = int(message.text.split()[1])
+    except: bot.reply_to(message, "❌ /mutetime [мин]"); return
+    try: bot.restrict_chat_member(cid, u.id, until_date=datetime.now()+timedelta(minutes=mins)); mutes_data.setdefault(u.id, {})[cid] = datetime.now()+timedelta(minutes=mins); save_all_data(); bot.reply_to(message, f"🔇 {u.first_name} {mins}м")
     except: bot.reply_to(message, "❌")
 
 @bot.message_handler(commands=['unmute'])
@@ -1472,11 +1102,7 @@ def unmute_cmd(message):
     if not has_rank(message.chat.id, message.from_user.id, 1): return
     if not message.reply_to_message: bot.reply_to(message, "❌ Ответь!"); return
     u, cid = message.reply_to_message.from_user, message.chat.id
-    try:
-        bot.restrict_chat_member(cid, u.id, can_send_messages=True, can_send_photos=True, can_send_videos=True, can_send_voices=True, can_send_audios=True, can_send_documents=True, can_send_stickers=True, can_send_animations=True, can_send_games=True, can_send_polls=True)
-        if u.id in mutes_data: mutes_data[u.id].pop(cid, None)
-        save_all_data()
-        bot.reply_to(message, f"🔊 {u.first_name} размучен!")
+    try: bot.restrict_chat_member(cid, u.id, can_send_messages=True, can_send_photos=True, can_send_videos=True, can_send_voices=True, can_send_audios=True, can_send_documents=True, can_send_stickers=True, can_send_animations=True, can_send_games=True, can_send_polls=True); mutes_data.get(u.id, {}).pop(cid, None); save_all_data(); bot.reply_to(message, f"🔊 {u.first_name}")
     except: bot.reply_to(message, "❌")
 
 @bot.message_handler(commands=['bantime'])
@@ -1485,11 +1111,9 @@ def bantime_cmd(message):
     if not message.reply_to_message: bot.reply_to(message, "❌ Ответь!"); return
     u, cid = message.reply_to_message.from_user, message.chat.id
     if get_rank(cid, u.id) >= get_rank(cid, message.from_user.id): bot.reply_to(message, f"❌ {random.choice(DENY_PHRASES)}"); return
-    args = message.text.split()
-    if len(args) < 2: bot.reply_to(message, "❌ /bantime [мин]"); return
-    try: mins = int(args[1])
-    except: bot.reply_to(message, "❌ Число!"); return
-    try: bot.ban_chat_member(cid, u.id, until_date=datetime.now() + timedelta(minutes=mins)); save_all_data(); bot.reply_to(message, f"🚫 {u.first_name} бан {mins} мин!")
+    try: mins = int(message.text.split()[1])
+    except: bot.reply_to(message, "❌ /bantime [мин]"); return
+    try: bot.ban_chat_member(cid, u.id, until_date=datetime.now()+timedelta(minutes=mins)); save_all_data(); bot.reply_to(message, f"🚫 {u.first_name} {mins}м")
     except: bot.reply_to(message, "❌")
 
 @bot.message_handler(commands=['ban'])
@@ -1498,9 +1122,8 @@ def ban_cmd(message):
     if not message.reply_to_message: bot.reply_to(message, "❌ Ответь!"); return
     u, cid = message.reply_to_message.from_user, message.chat.id
     if get_rank(cid, u.id) >= get_rank(cid, message.from_user.id): bot.reply_to(message, f"❌ {random.choice(DENY_PHRASES)}"); return
-    args = message.text.split(maxsplit=1)
-    reason = args[1] if len(args) > 1 else "Нарушение"
-    try: bot.ban_chat_member(cid, u.id); bans_data.setdefault(u.id, {})[cid] = True; save_all_data(); bot.reply_to(message, f"🚫 {u.first_name} забанен!\n{reason}")
+    reason = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else "Нарушение"
+    try: bot.ban_chat_member(cid, u.id); bans_data.setdefault(u.id, {})[cid] = True; save_all_data(); bot.reply_to(message, f"🚫 {u.first_name}!\n{reason}")
     except: bot.reply_to(message, "❌")
 
 @bot.message_handler(commands=['kick'])
@@ -1509,19 +1132,14 @@ def kick_cmd(message):
     if not message.reply_to_message: bot.reply_to(message, "❌ Ответь!"); return
     u, cid = message.reply_to_message.from_user, message.chat.id
     if get_rank(cid, u.id) >= get_rank(cid, message.from_user.id): bot.reply_to(message, f"❌ {random.choice(DENY_PHRASES)}"); return
-    try: bot.ban_chat_member(cid, u.id); bot.unban_chat_member(cid, u.id); bot.reply_to(message, f"👢 {u.first_name} кикнут!")
+    try: bot.ban_chat_member(cid, u.id); bot.unban_chat_member(cid, u.id); bot.reply_to(message, f"👢 {u.first_name}")
     except: bot.reply_to(message, "❌")
 
 @bot.message_handler(commands=['unban'])
 def unban_cmd(message):
     if not has_rank(message.chat.id, message.from_user.id, 3): return
-    args = message.text.split()
-    if len(args) < 2: bot.reply_to(message, "❌ /unban [ID]"); return
-    try:
-        uid = int(args[1]); bot.unban_chat_member(message.chat.id, uid)
-        if uid in bans_data: bans_data[uid].pop(message.chat.id, None)
-        save_all_data(); bot.reply_to(message, f"✅ {uid} разбанен!")
-    except: bot.reply_to(message, "❌")
+    try: uid = int(message.text.split()[1]); bot.unban_chat_member(message.chat.id, uid); bans_data.get(uid, {}).pop(message.chat.id, None); save_all_data(); bot.reply_to(message, f"✅ {uid}")
+    except: bot.reply_to(message, "❌ /unban [ID]")
 
 # ===== НАСТРОЙКИ ЧАТА =====
 @bot.message_handler(commands=['setrules'])
@@ -1529,39 +1147,32 @@ def setrules_cmd(message):
     if not is_owner_or_creator(message.chat.id, message.from_user.id): return
     args = message.text.split(maxsplit=1)
     if len(args) < 2: bot.reply_to(message, "❌ /setrules [текст]"); return
-    get_chat_data(message.chat.id)['rules'] = args[1]; save_all_data()
-    bot.reply_to(message, "✅")
+    get_chat_data(message.chat.id)['rules'] = args[1]; save_all_data(); bot.reply_to(message, "✅")
 
 @bot.message_handler(commands=['setwelcome'])
 def setwelcome_cmd(message):
     if not is_owner_or_creator(message.chat.id, message.from_user.id): return
     args = message.text.split(maxsplit=1)
     if len(args) < 2: bot.reply_to(message, "❌ /setwelcome [текст]"); return
-    get_chat_data(message.chat.id)['welcome'] = args[1]; save_all_data()
-    bot.reply_to(message, "✅")
+    get_chat_data(message.chat.id)['welcome'] = args[1]; save_all_data(); bot.reply_to(message, "✅")
 
 @bot.message_handler(commands=['welcome_on'])
 def welcome_on(message):
     if not is_owner_or_creator(message.chat.id, message.from_user.id): return
-    get_chat_data(message.chat.id)['welcome_enabled'] = True; save_all_data()
-    bot.reply_to(message, "✅ Вкл!")
+    get_chat_data(message.chat.id)['welcome_enabled'] = True; save_all_data(); bot.reply_to(message, "✅ Вкл")
 
 @bot.message_handler(commands=['welcome_off'])
 def welcome_off(message):
     if not is_owner_or_creator(message.chat.id, message.from_user.id): return
-    get_chat_data(message.chat.id)['welcome_enabled'] = False; save_all_data()
-    bot.reply_to(message, "✅ Выкл!")
+    get_chat_data(message.chat.id)['welcome_enabled'] = False; save_all_data(); bot.reply_to(message, "✅ Выкл")
 
 # ===== КАПЧА =====
 @bot.message_handler(commands=['captcha'])
 def captcha_cmd(message):
     if not has_rank(message.chat.id, message.from_user.id, 2): return
-    cid = message.chat.id
-    pending = captcha_data.get(cid, [])
-    if not pending: bot.reply_to(message, "✅ Нет."); return
-    text = "🔐 **Ожидают:**\n\n"
-    for uid in pending: text += f"• {get_user_name(uid, cid)} (`{uid}`)\n"
-    bot.reply_to(message, text + "\nИм нужно /start в ЛС.", parse_mode="Markdown")
+    pending = captcha_data.get(message.chat.id, [])
+    if not pending: bot.reply_to(message, "✅ Нет"); return
+    bot.reply_to(message, "🔐 **Ожидают:**\n\n" + "\n".join(f"• {get_user_name(u, message.chat.id)} (`{u}`)" for u in pending) + "\n\nНужно /start в ЛС", parse_mode="Markdown")
 
 # ===== ПРИВЕТСТВИЕ =====
 @bot.message_handler(content_types=['new_chat_members'])
@@ -1588,11 +1199,8 @@ def auto_mod(message):
         return
     message_history.setdefault(uid, []).append({"text": message.text, "time": datetime.now()})
     if len(message_history[uid]) > 10: message_history[uid] = message_history[uid][-10:]
-    recent = [m for m in message_history[uid] if (datetime.now() - m['time']).seconds < 5]
-    if len(recent) >= 5:
-        try:
-            bot.delete_message(cid, message.message_id)
-            if has_rank(cid, bot.get_me().id, 1): bot.restrict_chat_member(cid, uid, until_date=datetime.now() + timedelta(minutes=1))
+    if len([m for m in message_history[uid] if (datetime.now() - m['time']).seconds < 5]) >= 5:
+        try: bot.delete_message(cid, message.message_id)
         except: pass
 
 # ===== ГЛОБАЛЬНЫЕ =====
@@ -1607,16 +1215,13 @@ def broadcast_cmd(message):
     if message.from_user.id != OWNER_ID: return
     args = message.text.split(maxsplit=1)
     if len(args) < 2: bot.reply_to(message, "❌ /broadcast [текст]"); return
-    sent = 0
-    for cid in list(chats_data.keys()):
-        try: bot.send_message(cid, f"📢 {args[1]}"); sent += 1
-        except: pass
+    sent = sum(1 for cid in chats_data if not (lambda: bot.send_message(cid, f"📢 {args[1]}"))())
     bot.reply_to(message, f"✅ {sent} чатов")
 
 @bot.message_handler(commands=['uptime'])
 def uptime_cmd(message):
     delta = datetime.now() - start_time
-    bot.reply_to(message, f"⏱ {delta.days}д {delta.seconds//3600}ч {(delta.seconds%3600)//60}м", parse_mode="Markdown")
+    bot.reply_to(message, f"⏱ {delta.days}д {delta.seconds//3600}ч {(delta.seconds%3600)//60}м")
 
 # ===== АВТО-ОТЧЁТ =====
 def auto_daily_report():
@@ -1629,9 +1234,7 @@ def auto_daily_report():
         for cid in list(chats_data.keys()):
             stats = daily_stats.get(cid, {}).get(today, {})
             if stats and stats["messages"] > 10:
-                text = f"📰 **Итоги дня** ({today})\n💬 {stats['messages']} | 👥 {len(stats['users'])}\n🏆 "
-                for i, (uid, _) in enumerate(sorted(stats["users"].items(), key=lambda x: x[1], reverse=True)[:5], 1):
-                    text += f"{i}. {get_user_name(uid, cid)} "
+                text = f"📰 **Итоги** ({today})\n💬 {stats['messages']} | 👥 {len(stats['users'])}\n🏆 " + " ".join(f"{i}. {get_user_name(u,cid)}" for i,(u,_) in enumerate(sorted(stats["users"].items(), key=lambda x: x[1], reverse=True)[:5], 1))
                 try: bot.send_message(cid, text, parse_mode="Markdown")
                 except: pass
 
