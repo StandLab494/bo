@@ -33,6 +33,8 @@ clans_data = {}
 captcha_data = {}
 steal_times = {}
 boss_data = {}
+marriages = {}
+rep_data = {}
 start_time = datetime.now()
 
 owner_settings = {
@@ -96,7 +98,9 @@ def save_all_data():
         "temp_data": temp_data_serializable(),
         "clans_data": clans_data,
         "captcha_data": captcha_data,
-        "owner_settings": owner_settings
+        "owner_settings": owner_settings,
+        "marriages": marriages,
+        "rep_data": rep_data
     }
     
     with open(DB_FILE, "w", encoding="utf-8") as f:
@@ -114,7 +118,7 @@ def temp_data_serializable():
     return result
 
 def load_all_data():
-    global staff_data, warns_data, mutes_data, bans_data, chats_data, daily_stats, user_profiles, vip_data, economy, temp_data, clans_data, captcha_data, owner_settings
+    global staff_data, warns_data, mutes_data, bans_data, chats_data, daily_stats, user_profiles, vip_data, economy, temp_data, clans_data, captcha_data, owner_settings, marriages, rep_data
     
     if not os.path.exists(DB_FILE):
         return
@@ -146,6 +150,10 @@ def load_all_data():
             "work_min": 10, "work_max": 30,
             "daily_bonus_min": 50, "daily_bonus_max": 250
         })
+        marriages = data.get("marriages", {})
+        marriages = {int(k): v for k, v in marriages.items()}
+        rep_data = data.get("rep_data", {})
+        rep_data = {int(k): v for k, v in rep_data.items()}
         
         temp_data = {}
         for uid, items in data.get("temp_data", {}).items():
@@ -342,13 +350,14 @@ def start(message):
             parse_mode="Markdown",
             reply_markup=get_private_keyboard())
 
-# ===== КНОПКИ ЛС (КОНКРЕТНЫЕ — ДОЛЖНЫ БЫТЬ ВЫШЕ ОБЩЕГО ОБРАБОТЧИКА) =====
+# ===== КНОПКИ ЛС =====
 @bot.message_handler(func=lambda m: m.chat.type == 'private' and m.text == "❓ Помощь")
 def private_help(message):
     text = """🧱 **Wall — Команды**
 👤 **Для всех:** /id, /info, /report, /rules, /staff, /translate, /anonym, /nick, /bio, /profile, /top, /meme, /balance, /work, /daily, /pay, /casino, /clan, /lyrics, /song, /youtube, /botlink
 🛡️ **Модерация:** Ранг 1: /mute, /mutetime, /warn, /kick. Ранг 2: + /bantime, /pin, /unpin. Ранг 3: + /ban, /unban. Ранг 4: + /raising, /downgrade, /gg
 💬 **RP:** /hug, /kiss, /slap, /pat, /kill, /revive, /hugme, /cry, /laugh, /dance, /poke, /tickle, /highfive, /wink, /blush, /facepalm, /shrug, /angry, /bored, /confused, /hungry, /sleep, /wakeup, /yawn, /think
+💍 **Соц:** /marry, /divorce, /couple, /rep, /toprep
 💎 **VIP:** /viphelp"""
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -382,12 +391,17 @@ def profile_private(message):
     vip = get_vip(message.from_user.id)
     vip_text = f"{VIP_LEVELS[vip['level']]['color']} {VIP_LEVELS[vip['level']]['name']}" if vip['level'] > 0 else "Нет"
     clan = get_user_clan(message.from_user.id)
+    partner_id = marriages.get(message.from_user.id)
+    partner_text = get_user_name(partner_id) if partner_id else "Нет"
+    rep = rep_data.get(message.from_user.id, {}).get("count", 0)
     text = f"""👤 **Профиль**
 Имя: {profile['nick'] or message.from_user.first_name}
 ID: `{message.from_user.id}`
 💰 Баланс: {bal['balance']:,} 🧱
 💎 VIP: {vip_text}
 🏰 Клан: {clan if clan else 'Нет'}
+💍 Пара: {partner_text}
+⭐ Репутация: {rep}
 📝 Статус: {profile['bio'] or 'Не установлен'}"""
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -405,10 +419,9 @@ def buy_vip_callback(call):
     bot.answer_callback_query(call.id, f"✅ Куплен {info['name']}!")
     bot.send_message(user_id, f"🎉 Ты теперь {info['color']} {info['name']}!\n/viphelp — список команд.")
 
-# ===== ОБЩИЙ ОБРАБОТЧИК ЛС (ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ) =====
+# ===== ОБЩИЙ ОБРАБОТЧИК ЛС =====
 @bot.message_handler(func=lambda m: m.chat.type == 'private')
 def private_handler(message):
-    """Срабатывает только если не сработали кнопки выше"""
     get_balance(message.from_user.id)
     save_all_data()
     if message.text and not message.text.startswith('/'):
@@ -493,12 +506,17 @@ def profile_cmd(message):
         if dates: reg_date = sorted(dates)[0][:10]
     vip_text = f"{VIP_LEVELS[vip['level']]['color']} {VIP_LEVELS[vip['level']]['name']}" if vip['level'] > 0 else "Нет"
     rn = {0:"Участник", 1:"Модератор", 2:"Мл. владелец", 3:"Пом. владельца", 4:"Владелец"}
+    partner_id = marriages.get(uid)
+    partner_text = get_user_name(partner_id) if partner_id else "Нет"
+    rep = rep_data.get(uid, {}).get("count", 0)
     text = f"""📇 **Профиль**
 ━━━━━━━━━━━━━━━━
 👤 Имя: {profile['nick'] or u.first_name}
 🆔 ID: `{uid}`
 💎 VIP: {vip_text}
 🏰 Клан: {clan or 'Нет'}
+💍 Пара: {partner_text}
+⭐ Репутация: {rep}
 🎖 Ранг: {rn[rank]}
 📅 В боте с: {reg_date}
 💬 Сообщений: {total_msgs}
@@ -519,7 +537,99 @@ def bio_cmd(message):
     get_profile(message.from_user.id)['bio'] = args[1]; save_all_data()
     bot.reply_to(message, f"✅ Статус: {args[1]}")
 
-# ===== КЛАНЫ (СЖАТАЯ ВЕРСИЯ) =====
+# ===== БРАКИ =====
+@bot.message_handler(commands=['marry'])
+def marry_cmd(message):
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответь на сообщение того, с кем хочешь вступить в брак!")
+        return
+    user_id = message.from_user.id
+    partner = message.reply_to_message.from_user
+    if partner.id == user_id:
+        bot.reply_to(message, "❌ Нельзя жениться на себе!"); return
+    if user_id in marriages:
+        bot.reply_to(message, "❌ Ты уже в браке! /divorce"); return
+    if partner.id in marriages:
+        bot.reply_to(message, f"❌ {partner.first_name} уже в браке!"); return
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(
+        telebot.types.InlineKeyboardButton("💍 Да!", callback_data=f"marry_yes_{user_id}"),
+        telebot.types.InlineKeyboardButton("❌ Нет", callback_data=f"marry_no_{user_id}"))
+    bot.send_message(message.chat.id, f"💍 {partner.first_name}, {message.from_user.first_name} предлагает тебе вступить в брак!", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("marry_"))
+def marry_callback(call):
+    parts = call.data.split("_")
+    action = parts[1]
+    proposer_id = int(parts[2])
+    partner_id = call.from_user.id
+    if action == "yes":
+        if partner_id in marriages or proposer_id in marriages:
+            bot.answer_callback_query(call.id, "❌ Кто-то уже в браке!"); return
+        marriages[proposer_id] = partner_id
+        marriages[partner_id] = proposer_id
+        save_all_data()
+        bot.edit_message_text(f"💒 **Поздравляем!** {get_user_name(proposer_id, call.message.chat.id)} и {get_user_name(partner_id, call.message.chat.id)} теперь в браке!", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+    else:
+        bot.edit_message_text("💔 Предложение отклонено.", call.message.chat.id, call.message.message_id)
+    bot.answer_callback_query(call.id)
+
+@bot.message_handler(commands=['divorce'])
+def divorce_cmd(message):
+    user_id = message.from_user.id
+    if user_id not in marriages:
+        bot.reply_to(message, "❌ Ты не в браке!"); return
+    partner_id = marriages[user_id]
+    partner_name = get_user_name(partner_id, message.chat.id)
+    del marriages[user_id]
+    del marriages[partner_id]
+    save_all_data()
+    bot.send_message(message.chat.id, f"💔 **Развод!** {message.from_user.first_name} и {partner_name} больше не вместе.", parse_mode="Markdown")
+
+@bot.message_handler(commands=['couple'])
+def couple_cmd(message):
+    uid = message.reply_to_message.from_user.id if message.reply_to_message else message.from_user.id
+    if uid not in marriages:
+        bot.reply_to(message, "💔 Не в браке."); return
+    partner_id = marriages[uid]
+    bot.reply_to(message, f"💍 **Пара:** {get_user_name(uid, message.chat.id)} 💕 {get_user_name(partner_id, message.chat.id)}", parse_mode="Markdown")
+
+# ===== РЕПУТАЦИЯ =====
+@bot.message_handler(commands=['rep'])
+def rep_cmd(message):
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ Ответь на сообщение!"); return
+    user_id = message.from_user.id
+    target = message.reply_to_message.from_user
+    if target.id == user_id:
+        bot.reply_to(message, "❌ Нельзя себе!"); return
+    if user_id not in rep_data:
+        rep_data[user_id] = {"last_rep": None}
+    last_rep = rep_data[user_id].get("last_rep")
+    if last_rep:
+        last_time = datetime.fromisoformat(last_rep)
+        if datetime.now() - last_time < timedelta(hours=12):
+            remaining = timedelta(hours=12) - (datetime.now() - last_time)
+            bot.reply_to(message, f"⏳ Жди {remaining.seconds//3600}ч {(remaining.seconds%3600)//60}м"); return
+    if target.id not in rep_data:
+        rep_data[target.id] = {"count": 0}
+    rep_data[target.id]["count"] = rep_data[target.id].get("count", 0) + 1
+    rep_data[user_id]["last_rep"] = datetime.now().isoformat()
+    save_all_data()
+    bot.reply_to(message, f"⭐ {message.from_user.first_name} повысил репутацию {target.first_name}!\nРепутация: {rep_data[target.id]['count']}")
+
+@bot.message_handler(commands=['toprep'])
+def toprep_cmd(message):
+    if not rep_data:
+        bot.reply_to(message, "📭 Нет данных."); return
+    ranked = [(uid, data.get("count", 0)) for uid, data in rep_data.items() if data.get("count", 0) > 0]
+    ranked.sort(key=lambda x: x[1], reverse=True)
+    if not ranked:
+        bot.reply_to(message, "📭 Нет данных."); return
+    text = "🏆 **Топ-10 по репутации:**\n\n" + "\n".join(f"{i}. {get_user_name(uid, message.chat.id)} — {count} ⭐" for i, (uid, count) in enumerate(ranked[:10], 1))
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+# ===== КЛАНЫ =====
 @bot.message_handler(commands=['clan'])
 def clan_cmd(message):
     args = message.text.split(maxsplit=2)
@@ -821,14 +931,20 @@ def vip_commands(message):
         try: bot.delete_message(message.chat.id, message.message_id)
         except: pass
         bot.send_message(message.chat.id, f"👻 **Призрак:** {args}", parse_mode="Markdown")
-    elif cmd == "magic" and args: bot.send_message(message.chat.id, f"🎩 {' '.join(f'{c} {random.choice(['✨','🌟','💫','⭐','🔮','💎','🎩','🪄'])}' for c in args)}")
+    elif cmd == "magic" and args:
+        emojis = ["✨", "🌟", "💫", "⭐", "🔮", "💎", "🎩", "🪄"]
+        result = ' '.join(f"{c} {random.choice(emojis)}" for c in args)
+        bot.send_message(message.chat.id, f"🎩 {result}")
     elif cmd == "slow" and args:
         for c in args: bot.send_message(message.chat.id, c); time.sleep(0.3)
     elif cmd == "announce" and args:
         msg = bot.send_message(message.chat.id, f"📢 **ОБЪЯВЛЕНИЕ**\n\n{args}", parse_mode="Markdown")
         try: bot.pin_chat_message(message.chat.id, msg.message_id)
         except: pass
-    elif cmd == "rainbow" and args: bot.send_message(message.chat.id, ' '.join(f"{['🔴','🟠','🟡','🟢','🔵','🟣'][i%6]} {c}" for i,c in enumerate(args)))
+    elif cmd == "rainbow" and args:
+        colors = ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣"]
+        result = ' '.join(f"{colors[i % 6]} {c}" for i, c in enumerate(args))
+        bot.send_message(message.chat.id, result)
     elif cmd == "reverse" and args: bot.send_message(message.chat.id, args[::-1])
     elif cmd == "secret" and args: bot.send_message(message.chat.id, f"🔒 ||{args}||", parse_mode="Markdown")
     elif cmd == "countdown":
@@ -853,7 +969,9 @@ def vip_commands(message):
         msg = bot.send_message(message.chat.id, f"💣 {secs}...")
         for i in range(secs-1, 0, -1): time.sleep(1); bot.edit_message_text(f"💣 {i}...", message.chat.id, msg.message_id)
         bot.edit_message_text("💥 БУМ! 😄", message.chat.id, msg.message_id)
-    elif cmd == "weather": bot.send_message(message.chat.id, f"🌤 {random.choice(['☀️ Солнечно','🌧 Дождь','⛈ Гроза','❄️ Снег','🌪 Ураган','🌈 Радуга','🌙 Ночь'])}", parse_mode="Markdown")
+    elif cmd == "weather":
+        weathers = ["☀️ Солнечно", "🌧 Дождь", "⛈ Гроза", "❄️ Снег", "🌪 Ураган", "🌈 Радуга", "🌙 Ночь"]
+        bot.send_message(message.chat.id, f"🌤 {random.choice(weathers)}", parse_mode="Markdown")
 
 # ===== СООБЩЕНИЯ В ЛС =====
 @bot.message_handler(commands=['msg'])
@@ -897,6 +1015,7 @@ def help_cmd(message):
 👤 /id /info /report /rules /staff /translate /anonym /nick /bio /profile /top /meme /balance /work /daily /pay /casino /clan /lyrics /song /youtube /botlink
 🛡️ Р1: /mute /mutetime /warn /kick | Р2: +/bantime /pin /unpin | Р3: +/ban /unban | Р4: +/raising /downgrade /gg
 💬 RP: /hug /kiss /slap /pat /kill /revive /hugme /cry /laugh /dance /poke /tickle /highfive /wink /blush /facepalm /shrug /angry /bored /confused /hungry /sleep /wakeup /yawn /think
+💍 Соц: /marry /divorce /couple /rep /toprep
 💎 VIP: /viphelp""", parse_mode="Markdown")
 
 @bot.message_handler(commands=['id'])
@@ -917,10 +1036,14 @@ def info_cmd(message):
     banned = bans_data.get(uid, {}).get(cid, False)
     rn = {0:"Участник",1:"Модератор",2:"Мл. владелец",3:"Пом. владельца",4:"Владелец"}
     vt = f"{VIP_LEVELS[vip['level']]['color']} {VIP_LEVELS[vip['level']]['name']}" if vip['level']>0 else "Нет"
+    partner_id = marriages.get(uid)
+    partner_text = get_user_name(partner_id) if partner_id else "Нет"
+    rep = rep_data.get(uid, {}).get("count", 0)
     text = f"""📊 **Инфо**
 👤 {get_vip_display(uid, p['nick'] or u.first_name)}
 🆔 `{uid}` | 💎 {vt}
 🏰 {clan or 'Нет'} | 👑 {st}
+💍 {partner_text} | ⭐ {rep}
 🎖 {rn[get_rank(cid, uid)]} | ⚠️ {len(warns)}/3
 🔇 {muted} | 🚫 {'Да' if banned else 'Нет'}"""
     bot.reply_to(message, text, parse_mode="Markdown")
@@ -1215,7 +1338,10 @@ def broadcast_cmd(message):
     if message.from_user.id != OWNER_ID: return
     args = message.text.split(maxsplit=1)
     if len(args) < 2: bot.reply_to(message, "❌ /broadcast [текст]"); return
-    sent = sum(1 for cid in chats_data if not (lambda: bot.send_message(cid, f"📢 {args[1]}"))())
+    sent = 0
+    for cid in list(chats_data.keys()):
+        try: bot.send_message(cid, f"📢 {args[1]}"); sent += 1
+        except: pass
     bot.reply_to(message, f"✅ {sent} чатов")
 
 @bot.message_handler(commands=['uptime'])
