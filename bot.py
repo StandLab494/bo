@@ -21,12 +21,16 @@ chats_data = {}
 vip_data = {}
 pending_payments = {}
 captcha_data = {}
+temp_data = {}
 start_time = datetime.now()
 
+ADMIN_IDS = [8558737152, 8030745576, 6568332735, 7942689763, 7067016038]
+INITIAL_VIP_USERS = [8558737152, 8030745576, 6568332735, 7942689763, 7067016038]
+
 VIP_LEVELS = {
-    1: {"name": "VIP", "prefix": "[VIP]", "color": "🟣", "price": "100 ⭐"},
-    2: {"name": "VIP+", "prefix": "[VIP+]", "color": "🟡", "price": "250 ⭐"},
-    3: {"name": "LEGEND+", "prefix": "[LEGEND+]", "color": "🔴", "price": "500 ⭐"},
+    1: {"name": "[Star]", "prefix": "[Star]", "color": "🟣", "price": "100 ⭐"},
+    2: {"name": "[Great]", "prefix": "[Great]", "color": "🟡", "price": "250 ⭐"},
+    3: {"name": "[THE BOSS]", "prefix": "[THE BOSS]", "color": "🔴", "price": "500 ⭐"},
 }
 
 DENY_PHRASES = [
@@ -88,6 +92,12 @@ def auto_save():
         try: save_all_data()
         except: pass
 
+def give_initial_vip():
+    for uid in INITIAL_VIP_USERS:
+        vip_data[str(uid)] = {"level": 3, "color": "purple"}
+    save_all_data()
+    print("VIP 3 выдан 5 пользователям")
+
 def get_vip(uid):
     return vip_data.get(str(uid), {"level": 0, "color": "purple"})
 
@@ -95,7 +105,7 @@ def is_vip(uid):
     return get_vip(uid)["level"] >= 1
 
 def get_rank(chat_id, user_id):
-    if user_id == OWNER_ID: return 4
+    if user_id in ADMIN_IDS: return 4
     try:
         if bot.get_chat_member(chat_id, user_id).status == 'creator': return 4
     except: pass
@@ -167,16 +177,16 @@ def help_private(message):
 @bot.message_handler(func=lambda m: m.chat.type == 'private' and m.text == "Профиль")
 def profile_private(message):
     v = get_vip(message.from_user.id)
-    vt = f"{VIP_LEVELS[v['level']]['color']} {VIP_LEVELS[v['level']]['name']}" if v['level'] > 0 else "Нет"
+    vt = f"{VIP_LEVELS[v['level']]['name']}" if v['level'] > 0 else "Нет"
     bot.reply_to(message, f"Профиль\nID: {message.from_user.id}\nVIP: {vt}")
 
 @bot.message_handler(func=lambda m: m.chat.type == 'private' and m.text == "Купить VIP")
 def buy_vip_menu(message):
     text = ("Покупка VIP\n\n"
             "Цены:\n"
-            "⭐ VIP — 100 звёзд\n"
-            "🌟 VIP+ — 250 звёзд\n"
-            "💎 LEGEND+ — 500 звёзд\n\n"
+            "⭐ [Star] — 100 звёзд\n"
+            "🌟 [Great] — 250 звёзд\n"
+            "💎 [THE BOSS] — 500 звёзд\n\n"
             "Как купить:\n"
             "1. Отправьте нужное количество звёзд на @IKeutoy228\n"
             "2. Напишите мне: оплатил 1 (или 2, или 3)\n"
@@ -189,7 +199,7 @@ def paid_word(message):
     uid = message.from_user.id
     parts = message.text.split()
     if len(parts) < 2:
-        bot.reply_to(message, "Укажите уровень: оплатил 1\n1 - VIP (100 ⭐)\n2 - VIP+ (250 ⭐)\n3 - LEGEND+ (500 ⭐)")
+        bot.reply_to(message, "Укажите уровень: оплатил 1\n1 - [Star] (100 ⭐)\n2 - [Great] (250 ⭐)\n3 - [THE BOSS] (500 ⭐)")
         return
     try: level = int(parts[1])
     except: bot.reply_to(message, "Уровень: 1, 2 или 3"); return
@@ -199,7 +209,7 @@ def paid_word(message):
     save_all_data()
     
     prices = {1: "100 ⭐", 2: "250 ⭐", 3: "500 ⭐"}
-    names = {1: "VIP", 2: "VIP+", 3: "LEGEND+"}
+    names = {1: "[Star]", 2: "[Great]", 3: "[THE BOSS]"}
     
     bot.reply_to(message, f"Заявка на {names[level]} ({prices[level]}) принята!\nОжидайте подтверждения.")
     try: bot.send_message(OWNER_ID, f"Новая заявка!\n{message.from_user.first_name} (ID: {uid})\nУровень: {names[level]} ({prices[level]})\nОдобрить: одобрить {uid} {level}")
@@ -207,7 +217,7 @@ def paid_word(message):
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith('одобрить'))
 def approve_word(message):
-    if message.from_user.id != OWNER_ID: bot.reply_to(message, "Только владелец."); return
+    if message.from_user.id not in ADMIN_IDS: bot.reply_to(message, "Только администратор."); return
     parts = message.text.split()
     if len(parts) < 3: bot.reply_to(message, "одобрить [ID] [уровень]"); return
     try: target_id = int(parts[1]); level = int(parts[2])
@@ -219,19 +229,19 @@ def approve_word(message):
     pending_payments.pop(str(target_id), None)
     save_all_data()
     
-    bot.reply_to(message, f"{info['color']} {info['name']} выдан {target_id}!")
-    try: bot.send_message(target_id, f"Оплата подтверждена!\nВам выдан {info['color']} {info['name']}!")
+    bot.reply_to(message, f"{info['name']} выдан {target_id}!")
+    try: bot.send_message(target_id, f"Оплата подтверждена!\nВам выдан {info['name']}!")
     except: pass
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith('заявки'))
 def pending_word(message):
-    if message.from_user.id != OWNER_ID: return
+    if message.from_user.id not in ADMIN_IDS: return
     if not pending_payments:
         bot.reply_to(message, "Нет ожидающих заявок.")
         return
     text = "Заявки на VIP:\n\n"
     for uid, data in pending_payments.items():
-        names = {1: "VIP", 2: "VIP+", 3: "LEGEND+"}
+        names = {1: "[Star]", 2: "[Great]", 3: "[THE BOSS]"}
         text += f"{get_user_name(int(uid))} (ID: {uid}) — {names[data['level']]}\n"
     text += "\nОдобрить: одобрить [ID] [уровень]"
     bot.reply_to(message, text)
@@ -354,11 +364,29 @@ def prof_word(message):
     warns = warns_data.get(uid, {}).get(cid, [])
     mi = mutes_data.get(uid, {}).get(cid)
     banned = bans_data.get(uid, {}).get(cid, False)
+    v = get_vip(uid)
+    
+    if v['level'] > 0:
+        vip_text = f"**{VIP_LEVELS[v['level']]['name']}**"
+    else:
+        vip_text = "Нет"
+    
     if banned: status = "Забанен"
     elif mi and datetime.now() < mi: status = f"Замучен ({(mi-datetime.now()).seconds//60} мин)"
     else: status = "Активен"
+    
     rn = {0:"Участник",1:"Модератор",2:"Мл. владелец",3:"Пом. владельца",4:"Владелец"}
-    bot.reply_to(message, f"Профиль {target.first_name}\n━━━━━━━━━━━━━━\nID: {uid}\nРанг: {rn.get(rank, 'Участник')}\nВарны: {len(warns)}/3\nСтатус: {status}\n━━━━━━━━━━━━━━")
+    
+    bot.reply_to(message, 
+        f"Профиль {target.first_name}\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"ID: {uid}\n"
+        f"VIP: {vip_text}\n"
+        f"Ранг: {rn.get(rank, 'Участник')}\n"
+        f"Варны: {len(warns)}/3\n"
+        f"Статус: {status}\n"
+        f"━━━━━━━━━━━━━━",
+        parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith('правила'))
 def rules_word(message):
@@ -404,6 +432,93 @@ def staff_word(message):
     text = "Персонал:\n\n" + "\n".join(f"{get_user_name(u, message.chat.id)} — {rn[r]} (ранг {r})" for u, r in sorted(st.items(), key=lambda x: x[1], reverse=True))
     bot.reply_to(message, text)
 
+# ВЫДАЧА
+@bot.message_handler(func=lambda m: m.text and m.text.lower().startswith('дать'))
+def give_word(message):
+    if message.from_user.id not in ADMIN_IDS: bot.reply_to(message, "Только администратор."); return
+    
+    target_id, target_name = None, None
+    if message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        target_name = message.reply_to_message.from_user.first_name
+    else:
+        parts = message.text.split()
+        if len(parts) > 1:
+            try: target_id = int(parts[1]); target_name = get_user_name(target_id)
+            except: bot.reply_to(message, "ID или ответ на сообщение."); return
+        else: bot.reply_to(message, "ID или ответ на сообщение."); return
+    
+    if not target_id: bot.reply_to(message, "Не найден."); return
+    text = message.text.lower()
+    
+    if 'vip' in text or 'вип' in text:
+        level = None
+        for lvl in [3, 2, 1]:
+            if f'vip {lvl}' in text or f'вип {lvl}' in text or f'vip{lvl}' in text or f'вип{lvl}' in text:
+                level = lvl
+                break
+        
+        if not level:
+            bot.reply_to(message, "Укажи уровень: VIP 1, VIP 2, VIP 3")
+            return
+        
+        parts = text.split()
+        time_str = None
+        permanent = False
+        
+        if 'навсегда' in text:
+            permanent = True
+        else:
+            for i, part in enumerate(parts):
+                if part.startswith('vip') or part.startswith('вип'):
+                    if i + 2 < len(parts) and parts[i + 2] == 'на':
+                        if i + 3 < len(parts):
+                            time_str = parts[i + 3]
+                    elif i + 2 < len(parts):
+                        time_str = parts[i + 2]
+                    break
+        
+        until = None
+        if not permanent and time_str:
+            parsed = parse_time(time_str)
+            if parsed:
+                until = datetime.now() + timedelta(seconds=int(parsed * 60))
+            else:
+                bot.reply_to(message, f"Неверный формат времени: {time_str}\nПримеры: 1д, 7д, 30д, навсегда")
+                return
+        
+        vip_data[str(target_id)] = {"level": level, "color": "purple"}
+        if until:
+            if str(target_id) not in temp_data:
+                temp_data[str(target_id)] = {}
+            temp_data[str(target_id)]["vip"] = {"level": level, "until": until}
+        
+        save_all_data()
+        info = VIP_LEVELS[level]
+        td = "навсегда" if permanent else time_str
+        bot.reply_to(message, f"{info['name']} выдан {target_name} на {td}.")
+        try: bot.send_message(target_id, f"Вам выдан {info['name']} на {td}!")
+        except: pass
+    
+    else:
+        bot.reply_to(message, "Что выдать: VIP\nПример: дать вип 1 на 7д\nдать вип 3 навсегда")
+
+# VIP-ПРЕФИКС В ЧАТЕ
+@bot.message_handler(func=lambda m: True)
+def vip_prefix(message):
+    uid = message.from_user.id
+    cid = message.chat.id
+    
+    if message.chat.type == 'private': return
+    if not message.text: return
+    
+    v = get_vip(uid)
+    if v['level'] > 0:
+        prefix = VIP_LEVELS[v['level']]['name']
+        try: bot.delete_message(cid, message.message_id)
+        except: pass
+        bot.send_message(cid, f"{prefix} {message.from_user.first_name}: {message.text}")
+
 # КАПЧА
 @bot.message_handler(content_types=['new_chat_members'])
 def welcome_new(message):
@@ -420,5 +535,6 @@ def welcome_new(message):
 # ЗАПУСК
 print("Wall запущен!")
 load_all_data()
+give_initial_vip()
 threading.Thread(target=auto_save, daemon=True).start()
 bot.infinity_polling()
