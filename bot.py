@@ -50,8 +50,9 @@ DENY_PHRASES = [
     "Иерархия есть иерархия.",
     "Равный не может наказать равного.",
     "Требуется превосходство по рангу.",
-]
+    "нет."
 
+]
 def save_all_data():
     clean_mutes = {}
     for uid, chats in mutes_data.items():
