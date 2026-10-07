@@ -36,27 +36,27 @@ MINES_GOAL = 3
 MINES_MULT = [1.2, 1.8, 2.5]
 
 CRASH_GROWTH = 0.3
-CRASH_MAX = 20.0
+CRASH_MAX = 30.0
 CRASH_HOUSE_EDGE = 0.05
-CRASH_INSTANT_CHANCE = 0.03
+CRASH_INSTANT_CHANCE = 0.002
 
 # ==================== МАГАЗИН ====================
 SHOP_ITEMS = {
     "shield": {
         "name": "🛡 Щит",
-        "price": 500_000,
+        "price": 50_000,
         "desc": "Спасёт от одной мины в MINES",
         "buyable": True,
     },
     "booster": {
         "name": "🎯 Бустер ×2 (бета)",
-        "price": 2_000_000,
+        "price": 2_000_00,
         "desc": "Удвоит выигрыш в следующей игре",
         "buyable": False,
     },
     "case": {
         "name": "🎁 Кейс",
-        "price": 1_000_000,
+        "price": 1_000_00,
         "desc": "Случайная награда: от 100к до 50M",
         "buyable": True,
     },
