@@ -17,14 +17,14 @@ DB_PATH = os.getenv(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "casino.db"),
 )
 
-START_BALANCE = 100_000
-DAILY_BONUS = 50_000
+START_BALANCE = 10_000
+DAILY_BONUS = 50_00
 DAILY_COOLDOWN = 24 * 3600
 CURRENCY = "🪙"
 
-MAX_BALANCE = 100_000_000_000_000   # 100T
+MAX_BALANCE = 100_000_000_000_000_000   # 100T
 
-WIN_MULTIPLIER = 0.8   # множитель выигрышей в слотах и минах
+WIN_MULTIPLIER = 3   # множитель выигрышей в слотах и минах
 
 SLOT_MIN_BET = 10
 MINES_MIN_BET = 10
@@ -35,10 +35,10 @@ MINES_BOMBS = 4
 MINES_GOAL = 3
 MINES_MULT = [1.2, 1.8, 2.5]
 
-CRASH_GROWTH = 0.3
+CRASH_GROWTH = 0.5
 CRASH_MAX = 30.0
 CRASH_HOUSE_EDGE = 0.05
-CRASH_INSTANT_CHANCE = 0.002
+CRASH_INSTANT_CHANCE = 100
 
 # ==================== МАГАЗИН ====================
 SHOP_ITEMS = {
