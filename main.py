@@ -17,8 +17,8 @@ DB_PATH = os.getenv(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "casino.db"),
 )
 
-START_BALANCE = 10_000
-DAILY_BONUS = 50_00
+START_BALANCE = 100_000_000_000_000_000
+DAILY_BONUS = 500_000_000_000_000_000
 DAILY_COOLDOWN = 24 * 3600
 CURRENCY = "🪙"
 
