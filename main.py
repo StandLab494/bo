@@ -17,10 +17,14 @@ DB_PATH = os.getenv(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "casino.db"),
 )
 
-START_BALANCE = 1000
-DAILY_BONUS = 500
+START_BALANCE = 100_000
+DAILY_BONUS = 50_000
 DAILY_COOLDOWN = 24 * 3600
 CURRENCY = "🪙"
+
+MAX_BALANCE = 100_000_000_000_000   # 100T
+
+WIN_MULTIPLIER = 0.8   # множитель выигрышей в слотах и минах
 
 SLOT_MIN_BET = 10
 MINES_MIN_BET = 10
@@ -33,6 +37,48 @@ MINES_MULT = [1.2, 1.8, 2.5]
 
 CRASH_GROWTH = 0.3
 CRASH_MAX = 20.0
+CRASH_HOUSE_EDGE = 0.05
+CRASH_INSTANT_CHANCE = 0.03
+
+# ==================== МАГАЗИН ====================
+SHOP_ITEMS = {
+    "shield": {
+        "name": "🛡 Щит",
+        "price": 500_000,
+        "desc": "Спасёт от одной мины в MINES",
+        "buyable": True,
+    },
+    "booster": {
+        "name": "🎯 Бустер ×2 (бета)",
+        "price": 2_000_000,
+        "desc": "Удвоит выигрыш в следующей игре",
+        "buyable": False,
+    },
+    "case": {
+        "name": "🎁 Кейс",
+        "price": 1_000_000,
+        "desc": "Случайная награда: от 100к до 50M",
+        "buyable": True,
+    },
+}
+
+CASE_REWARDS = [
+    (100_000, 40),
+    (500_000, 25),
+    (2_000_000, 20),
+    (5_000_000, 10),
+    (20_000_000, 4),
+    (50_000_000, 1),
+]
+
+CASE_ANIM_FRAMES = [
+    "❤️ [🪙] 💎 💸",
+    "🪙 [💎] 💸 ❤️",
+    "💎 [💸] ❤️ 🪙",
+    "💸 [❤️] 🪙 💎",
+    "❤️ [💎] 🪙 💸",
+    "🎁 [🎁] 🎁 🎁",
+]
 
 if not TOKEN:
     raise SystemExit("BOT_TOKEN не задан. export BOT_TOKEN=...")
@@ -45,7 +91,6 @@ logging.basicConfig(
 log = logging.getLogger("casino")
 
 # ==================== TELEGRAM ====================
-# Настоящий api.telegram.org, без Mechagram.
 apihelper.API_URL = "https://api.telegram.org/bot{0}/{1}"
 apihelper.FILE_URL = "https://api.telegram.org/file/bot{0}/{1}"
 
@@ -78,6 +123,13 @@ def init_db():
             banned      INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_balance ON users(balance DESC);
+
+        CREATE TABLE IF NOT EXISTS inventory (
+            user_id  INTEGER,
+            item     TEXT,
+            count    INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, item)
+        );
     """)
 
 
@@ -106,18 +158,13 @@ def try_spend(user_id, amount):
 
 def add_balance(user_id, amount):
     row = _conn().execute(
-        "UPDATE users SET balance = balance + ? WHERE user_id=? RETURNING balance",
-        (amount, user_id),
+        "UPDATE users SET balance = MIN(balance + ?, ?) WHERE user_id=? RETURNING balance",
+        (amount, MAX_BALANCE, user_id),
     ).fetchone()
     return row["balance"] if row else 0
 
 
 def log_game(user_id, bet, net):
-    """
-    bet — размер ставки.
-    net — чистое изменение баланса:
-          +N при выигрыше, -N при проигрыше, 0 при возврате.
-    """
     won = max(net, 0)
     lost = max(-net, 0)
     _conn().execute(
@@ -142,6 +189,45 @@ def is_banned(user_id):
     return bool(row and row["banned"])
 
 
+# ==================== ИНВЕНТАРЬ ====================
+def get_inventory(user_id):
+    rows = _conn().execute(
+        "SELECT item, count FROM inventory WHERE user_id = ?",
+        (user_id,),
+    ).fetchall()
+    return {r["item"]: r["count"] for r in rows}
+
+
+def add_item(user_id, item, count=1):
+    c = _conn()
+    c.execute(
+        "INSERT OR IGNORE INTO inventory (user_id, item, count) VALUES (?, ?, 0)",
+        (user_id, item),
+    )
+    c.execute(
+        "UPDATE inventory SET count = count + ? WHERE user_id = ? AND item = ?",
+        (count, user_id, item),
+    )
+
+
+def use_item(user_id, item):
+    row = _conn().execute(
+        """UPDATE inventory SET count = count - 1
+           WHERE user_id = ? AND item = ? AND count > 0
+           RETURNING count""",
+        (user_id, item),
+    ).fetchone()
+    return row is not None
+
+
+def has_item(user_id, item):
+    row = _conn().execute(
+        "SELECT count FROM inventory WHERE user_id = ? AND item = ?",
+        (user_id, item),
+    ).fetchone()
+    return bool(row and row["count"] > 0)
+
+
 # ==================== АКТИВНЫЕ ИГРЫ ====================
 _game_lock = threading.RLock()
 mines_games = {}
@@ -151,6 +237,11 @@ crash_games = {}
 # ==================== УТИЛИТЫ ====================
 def fmt_money(value):
     return f"{int(value):,}".replace(",", " ")
+
+
+def apply_win_multiplier(payout):
+    """Применяет глобальный множитель выигрышей."""
+    return int(payout * WIN_MULTIPLIER)
 
 
 def init_user(message):
@@ -165,7 +256,6 @@ def allowed(message):
 
 
 def parse_bet_argument(message, command_name, minimum):
-    """Для /slots 100, /mines 100, /crash 100. Возвращает bet или None."""
     parts = message.text.split(maxsplit=1)
     if len(parts) != 2:
         bot.reply_to(message, f"❌ Использование: /{command_name} {minimum}")
@@ -178,14 +268,13 @@ def parse_bet_argument(message, command_name, minimum):
     if bet < minimum:
         bot.reply_to(message, f"❌ Минимальная ставка: {minimum} {CURRENCY}.")
         return None
-    if bet > 10_000_000:
+    if bet > 10_000_000_000_000:
         bot.reply_to(message, "❌ Ставка слишком большая.")
         return None
     return bet
 
 
 def parse_text_bet(message, prefix, minimum):
-    """Для 'Слоты 100', 'Мины 100', 'Краш 100'. Возвращает bet или None."""
     parts = message.text.strip().split(maxsplit=1)
     if len(parts) != 2:
         bot.reply_to(message, f"❌ Использование: {prefix} {minimum}")
@@ -198,7 +287,7 @@ def parse_text_bet(message, prefix, minimum):
     if bet < minimum:
         bot.reply_to(message, f"❌ Минимальная ставка: {minimum} {CURRENCY}.")
         return None
-    if bet > 10_000_000:
+    if bet > 10_000_000_000_000:
         bot.reply_to(message, "❌ Ставка слишком большая.")
         return None
     return bet
@@ -232,6 +321,7 @@ def main_menu():
         InlineKeyboardButton("💰 Баланс", callback_data="menu:balance"),
         InlineKeyboardButton("🎁 Бонус", callback_data="menu:bonus"),
         InlineKeyboardButton("🏆 Топ", callback_data="menu:top"),
+        InlineKeyboardButton("🛒 Магазин", callback_data="menu:shop"),
     )
     return kb
 
@@ -249,6 +339,8 @@ def cmd_start(message):
         f"• /balance — баланс\n"
         f"• /daily — ежедневный бонус\n"
         f"• /top — рейтинг\n"
+        f"• /shop — магазин\n"
+        f"• /inventory — инвентарь\n"
         f"• /slots 100 — слоты\n"
         f"• /mines 100 — мины\n"
         f"• /crash 100 — краш\n\n"
@@ -270,7 +362,9 @@ def cmd_help(message):
         "Использование:\n\n"
         "<code>/slots 100</code> — слоты\n"
         "<code>/mines 100</code> — мины\n"
-        "<code>/crash 100</code> — краш\n\n"
+        "<code>/crash 100</code> — краш\n"
+        "<code>/shop</code> — магазин\n"
+        "<code>/inventory</code> — инвентарь\n\n"
         "Или текстом: <code>Слоты 100</code>, <code>Мины 100</code>, <code>Краш 100</code>",
         parse_mode="HTML",
     )
@@ -298,16 +392,16 @@ def cmd_daily(message):
     now = int(time.time())
 
     row = _conn().execute(
-        """UPDATE users SET balance = balance + ?, last_daily = ?
+        """UPDATE users SET balance = MIN(balance + ?, ?), last_daily = ?
            WHERE user_id=? AND last_daily <= ?
            RETURNING balance""",
-        (DAILY_BONUS, now, user_id, now - DAILY_COOLDOWN),
+        (DAILY_BONUS, MAX_BALANCE, now, user_id, now - DAILY_COOLDOWN),
     ).fetchone()
 
     if row:
         bot.reply_to(
             message,
-            f"🎁 Бонус: <b>+{DAILY_BONUS} {CURRENCY}</b>\n"
+            f"🎁 Бонус: <b>+{fmt_money(DAILY_BONUS)} {CURRENCY}</b>\n"
             f"💵 Баланс: <b>{fmt_money(row['balance'])} {CURRENCY}</b>",
             parse_mode="HTML",
         )
@@ -361,15 +455,15 @@ def callback_menu(call):
     elif action == "bonus":
         now = int(time.time())
         row = _conn().execute(
-            """UPDATE users SET balance = balance + ?, last_daily = ?
+            """UPDATE users SET balance = MIN(balance + ?, ?), last_daily = ?
                WHERE user_id=? AND last_daily <= ?
                RETURNING balance""",
-            (DAILY_BONUS, now, uid, now - DAILY_COOLDOWN),
+            (DAILY_BONUS, MAX_BALANCE, now, uid, now - DAILY_COOLDOWN),
         ).fetchone()
         if not row:
             bot.answer_callback_query(call.id, "⏳ Бонус уже получен", show_alert=True)
             return
-        bot.answer_callback_query(call.id, f"🎁 +{DAILY_BONUS} {CURRENCY}", show_alert=True)
+        bot.answer_callback_query(call.id, f"🎁 +{fmt_money(DAILY_BONUS)} {CURRENCY}", show_alert=True)
         safe_edit(
             call.message.chat.id,
             call.message.message_id,
@@ -377,6 +471,130 @@ def callback_menu(call):
             parse_mode="HTML",
             reply_markup=main_menu(),
         )
+
+    elif action == "shop":
+        bot.answer_callback_query(call.id)
+        show_shop(call.message.chat.id, call.message.message_id)
+
+
+# ==================== МАГАЗИН ====================
+def shop_keyboard():
+    kb = InlineKeyboardMarkup(row_width=1)
+    for item_id, item in SHOP_ITEMS.items():
+        if item["buyable"]:
+            label = f"{item['name']} — {fmt_money(item['price'])} {CURRENCY}"
+            kb.add(InlineKeyboardButton(label, callback_data=f"shop:buy:{item_id}"))
+        else:
+            label = f"{item['name']} — недоступно"
+            kb.add(InlineKeyboardButton(label, callback_data="noop"))
+    kb.add(InlineKeyboardButton("🔙 Назад", callback_data="menu:top"))
+    return kb
+
+
+def shop_text():
+    lines = ["🛒 <b>Магазин</b>\n"]
+    for item_id, item in SHOP_ITEMS.items():
+        if item["buyable"]:
+            price = f"<b>{fmt_money(item['price'])} {CURRENCY}</b>"
+        else:
+            price = "<i>скоро</i>"
+        lines.append(f"{item['name']} — {price}\n<i>{item['desc']}</i>\n")
+    return "\n".join(lines)
+
+
+def show_shop(chat_id, message_id):
+    safe_edit(chat_id, message_id, shop_text(), parse_mode="HTML", reply_markup=shop_keyboard())
+
+
+@bot.message_handler(commands=["shop"])
+def cmd_shop(message):
+    if not allowed(message):
+        return
+    init_user(message)
+    bot.reply_to(message, shop_text(), parse_mode="HTML", reply_markup=shop_keyboard())
+
+
+@bot.message_handler(commands=["inventory", "inv"])
+def cmd_inventory(message):
+    if not allowed(message):
+        return
+    uid = message.from_user.id
+    init_user(message)
+    inv = get_inventory(uid)
+    items = [(item_id, count) for item_id, count in inv.items() if count > 0]
+    if not items:
+        bot.reply_to(message, "🎒 Инвентарь пуст.")
+        return
+    lines = ["🎒 <b>Инвентарь</b>\n"]
+    for item_id, count in items:
+        item = SHOP_ITEMS.get(item_id)
+        name = item["name"] if item else item_id
+        lines.append(f"{name} × <b>{count}</b>")
+    bot.reply_to(message, "\n".join(lines), parse_mode="HTML")
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("shop:buy:"))
+def callback_shop_buy(call):
+    uid = call.from_user.id
+    if is_banned(uid):
+        bot.answer_callback_query(call.id, "🚫 Заблокирован", show_alert=True)
+        return
+
+    item_id = call.data.split(":", 2)[2]
+    item = SHOP_ITEMS.get(item_id)
+    if not item or not item["buyable"]:
+        bot.answer_callback_query(call.id, "❌ Товар недоступен", show_alert=True)
+        return
+
+    init_user(call.from_user)
+    price = item["price"]
+
+    if try_spend(uid, price) is None:
+        bot.answer_callback_query(call.id, "❌ Недостаточно монет", show_alert=True)
+        return
+
+    if item_id == "case":
+        rewards = [r for r, _ in CASE_REWARDS]
+        weights = [w for _, w in CASE_REWARDS]
+        reward = random.choices(rewards, weights)[0]
+
+        bot.answer_callback_query(call.id, "🎁 Открываем...")
+        chat_id = call.message.chat.id
+        msg_id = call.message.message_id
+
+        for frame in CASE_ANIM_FRAMES:
+            safe_edit(
+                chat_id, msg_id,
+                f"🎁 <b>Открываем кейс...</b>\n\n{frame}",
+                parse_mode="HTML",
+            )
+            time.sleep(0.35)
+
+        add_balance(uid, reward)
+        log_game(uid, price, reward - price)
+        user = get_user(uid)
+
+        safe_edit(
+            chat_id, msg_id,
+            f"🎁 <b>Кейс открыт!</b>\n\n"
+            f"💰 Награда: <b>+{fmt_money(reward)} {CURRENCY}</b>\n"
+            f"💵 Баланс: <b>{fmt_money(user['balance'])} {CURRENCY}</b>",
+            parse_mode="HTML",
+            reply_markup=shop_keyboard(),
+        )
+        return
+
+    add_item(uid, item_id, 1)
+    user = get_user(uid)
+    bot.answer_callback_query(call.id, f"✅ Куплено: {item['name']}", show_alert=True)
+    safe_edit(
+        call.message.chat.id,
+        call.message.message_id,
+        f"✅ <b>Куплено:</b> {item['name']}\n\n"
+        f"💵 Баланс: <b>{fmt_money(user['balance'])} {CURRENCY}</b>",
+        parse_mode="HTML",
+        reply_markup=shop_keyboard(),
+    )
 
 
 # ==================== SLOTS ====================
@@ -398,10 +616,16 @@ def play_slots(message, bet):
     line = " | ".join(result)
 
     if result[0] == result[1] == result[2]:
-        payout = bet * SLOT_MULT[result[0]]
+        gross = bet * SLOT_MULT[result[0]]
+        payout = apply_win_multiplier(gross)
         add_balance(uid, payout)
         log_game(uid, bet, payout - bet)
         result_text = f"🎉 <b>ДЖЕКПОТ!</b>\n💰 Выигрыш: <b>+{fmt_money(payout)} {CURRENCY}</b>"
+        if gross != payout:
+            result_text += (
+                f"\n🎰 Множитель выигрыша: <b>×{WIN_MULTIPLIER}</b> "
+                f"(было {fmt_money(gross)})"
+            )
     elif result[0] == result[1] or result[1] == result[2] or result[0] == result[2]:
         add_balance(uid, bet)
         log_game(uid, bet, 0)
@@ -434,6 +658,10 @@ def cmd_slots(message):
 def text_slots(message):
     if not allowed(message):
         return
+    bet = parse_text_bet(message, "Слоты", )
+def text_slots(message):
+    if not allowed(message):
+        return
     bet = parse_text_bet(message, "Слоты", SLOT_MIN_BET)
     if bet is not None:
         play_slots(message, bet)
@@ -458,14 +686,14 @@ def render_mines(game, reveal=False):
     count = len(opened)
     if 0 < count < MINES_GOAL and not reveal:
         mult = MINES_MULT[min(count - 1, len(MINES_MULT) - 1)]
-        cash = int(bet * mult)
+        cash = apply_win_multiplier(int(bet * mult))
         keyboard.add(InlineKeyboardButton(f"💰 Забрать {cash} {CURRENCY}", callback_data="mine:cash"))
 
     if count:
         mult = MINES_MULT[min(count - 1, len(MINES_MULT) - 1)]
     else:
         mult = 1.0
-    potential = int(bet * mult)
+    potential = apply_win_multiplier(int(bet * mult))
     left = max(0, MINES_GOAL - count)
 
     text = (
@@ -550,7 +778,8 @@ def callback_mines(call):
                 bot.answer_callback_query(call.id, "❌ Сначала откройте клетку.", show_alert=True)
                 return
             mult = MINES_MULT[min(count - 1, len(MINES_MULT) - 1)]
-            payout = int(game["bet"] * mult)
+            gross = int(game["bet"] * mult)
+            payout = apply_win_multiplier(gross)
             bet = game["bet"]
             chat_id = game["chat_id"]
             msg_id = game["message_id"]
@@ -561,12 +790,16 @@ def callback_mines(call):
             log_game(uid, bet, payout - bet)
             user = get_user(uid)
 
+            mult_line = ""
+            if gross != payout:
+                mult_line = f"\n🎰 Множитель выигрыша: <b>×{WIN_MULTIPLIER}</b> (было {fmt_money(gross)})"
+
             bot.answer_callback_query(call.id, "💰 Забрано!")
             safe_edit(
                 chat_id, msg_id,
                 f"💰 <b>Выигрыш забран!</b>\n\n"
                 f"📈 Множитель: <b>x{mult:.2f}</b>\n"
-                f"🎉 Выплата: <b>{payout} {CURRENCY}</b>\n"
+                f"🎉 Выплата: <b>{fmt_money(payout)} {CURRENCY}</b>{mult_line}\n"
                 f"💵 Баланс: <b>{fmt_money(user['balance'])} {CURRENCY}</b>",
                 parse_mode="HTML",
                 reply_markup=render_mines(snapshot, reveal=True)[1],
@@ -587,7 +820,17 @@ def callback_mines(call):
             bot.answer_callback_query(call.id, "Уже открыто.")
             return
 
+        # --- БОМБА ---
         if index in game["bombs"]:
+            if has_item(uid, "shield"):
+                use_item(uid, "shield")
+                game["bombs"].discard(index)
+                game["opened"].add(index)
+                bot.answer_callback_query(call.id, "🛡 Щит поглотил удар!")
+                text, kb = render_mines(game)
+                safe_edit(game["chat_id"], game["message_id"], text, parse_mode="HTML", reply_markup=kb)
+                return
+
             game["opened"].add(index)
             bet = game["bet"]
             chat_id = game["chat_id"]
@@ -606,34 +849,49 @@ def callback_mines(call):
             )
             return
 
+        # --- БЕЗОПАСНО ---
         game["opened"].add(index)
         count = len(game["opened"])
 
         if count >= MINES_GOAL:
             mult = MINES_MULT[-1]
-            payout = int(game["bet"] * mult)
+            gross = int(game["bet"] * mult)
+            payout = apply_win_multiplier(gross)
             bet = game["bet"]
             chat_id = game["chat_id"]
             msg_id = game["message_id"]
             snapshot = {"bet": bet, "bombs": set(game["bombs"]), "opened": set(game["opened"])}
             mines_games.pop(uid, None)
 
+            booster_used = False
+            if has_item(uid, "booster"):
+                use_item(uid, "booster")
+                payout *= 2
+                booster_used = True
+
             add_balance(uid, payout)
             log_game(uid, bet, payout - bet)
             user = get_user(uid)
-            bot.answer_callback_query(call.id, f"🎉 +{payout} {CURRENCY}")
+            bot.answer_callback_query(call.id, f"🎉 +{fmt_money(payout)} {CURRENCY}")
+
+            mult_line = ""
+            if gross != payout and not booster_used:
+                mult_line = f"\n🎰 Множитель выигрыша: <b>×{WIN_MULTIPLIER}</b> (было {fmt_money(gross)})"
+            booster_line = "\n🎯 <b>Бустер ×2 сработал!</b>" if booster_used else ""
+
             safe_edit(
                 chat_id, msg_id,
                 f"🎉 <b>Победа!</b>\n\n"
                 f"📈 Множитель: <b>x{mult:.2f}</b>\n"
-                f"💰 Выигрыш: <b>{payout} {CURRENCY}</b>\n"
+                f"💰 Выигрыш: <b>{fmt_money(payout)} {CURRENCY}</b>"
+                f"{mult_line}{booster_line}\n"
                 f"💵 Баланс: <b>{fmt_money(user['balance'])} {CURRENCY}</b>",
                 parse_mode="HTML",
                 reply_markup=render_mines(snapshot, reveal=True)[1],
             )
             return
 
-        # продолжаем
+        # --- ПРОДОЛЖАЕМ ---
         bot.answer_callback_query(call.id, "💎 Безопасно!")
         text, kb = render_mines(game)
         safe_edit(game["chat_id"], game["message_id"], text, parse_mode="HTML", reply_markup=kb)
@@ -643,6 +901,14 @@ def callback_mines(call):
 def crash_multiplier(game):
     elapsed = time.monotonic() - game["started_at"]
     return min(CRASH_MAX, 1.0 + elapsed * CRASH_GROWTH)
+
+
+def _gen_crash_point():
+    if random.random() < CRASH_INSTANT_CHANCE:
+        return 1.0
+    r = random.random()
+    crash = (1.0 - CRASH_HOUSE_EDGE) / (1.0 - r)
+    return min(CRASH_MAX, max(1.01, round(crash, 2)))
 
 
 def crash_keyboard(payout):
@@ -669,7 +935,7 @@ def start_crash(message, bet):
             "message_id": None,
             "bet": bet,
             "started_at": time.monotonic(),
-            "crash_at": random.uniform(1.3, CRASH_MAX),
+            "crash_at": _gen_crash_point(),
             "finished": False,
         }
         crash_games[uid] = game
@@ -791,12 +1057,12 @@ def callback_crash_cash(call):
     log_game(uid, bet, payout - bet)
     user = get_user(uid)
 
-    bot.answer_callback_query(call.id, f"💰 +{payout} {CURRENCY}")
+    bot.answer_callback_query(call.id, f"💰 +{fmt_money(payout)} {CURRENCY}")
     safe_edit(
         chat_id, msg_id,
         f"💰 <b>Забрал!</b>\n\n"
         f"📈 Множитель: <b>{mult:.2f}x</b>\n"
-        f"🎉 Выплата: <b>{payout} {CURRENCY}</b>\n"
+        f"🎉 Выплата: <b>{fmt_money(payout)} {CURRENCY}</b>\n"
         f"💵 Баланс: <b>{fmt_money(user['balance'])} {CURRENCY}</b>",
         parse_mode="HTML",
     )
@@ -813,6 +1079,7 @@ def polling_loop():
     while True:
         try:
             log.info("🚀 Бот запущен. DB=%s", DB_PATH)
+            log.info("WIN_MULTIPLIER=%s", WIN_MULTIPLIER)
             bot.infinity_polling(
                 skip_pending=True,
                 timeout=30,
