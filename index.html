@@ -4,50 +4,72 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#1769e0">
-<meta name="description" content="OGretro — discover community games and experiences.">
-<title>OGretro — Home</title>
+<meta name="description" content="OGretro — community games.">
+<title>OGretro</title>
 <style>
-:root{color-scheme:light;--blue:#1769e0;--blue2:#0f55bc;--ink:#202632;--muted:#778292;--line:#e3e8ef;--page:#f3f5f8;--white:#fff}
-*{box-sizing:border-box}body{margin:0;background:var(--page);color:var(--ink);font:14px/1.45 Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select{font:inherit}button{cursor:pointer}
-.topbar{height:62px;background:var(--blue);color:white;display:flex;align-items:center;gap:13px;padding:0 max(14px,calc((100% - 1180px)/2));position:sticky;top:0;z-index:5;box-shadow:0 2px 8px #172b4d18}
-.iconbtn{border:0;background:transparent;color:inherit;font-size:23px;padding:5px}.brand{display:flex;align-items:center;gap:8px;color:white;text-decoration:none;font-weight:850;font-size:22px;letter-spacing:-.7px;white-space:nowrap}.brandmark{width:31px;height:31px;border-radius:8px;background:#fff;color:var(--blue);display:grid;place-items:center;font-weight:950;font-size:20px}
-.search{display:flex;align-items:center;gap:8px;background:white;color:#758093;border-radius:6px;height:37px;padding:0 11px;flex:1;max-width:540px;margin-left:auto}.search input{border:0;outline:0;width:100%;min-width:0;color:var(--ink);background:transparent}.actions{display:flex;gap:8px}.actions button{border-radius:6px;padding:9px 13px;font-size:13px;font-weight:750}.login{background:transparent;color:white;border:1px solid #ffffffa8}.signup{background:white;color:var(--blue);border:1px solid white}
-.nav{height:47px;background:white;display:flex;align-items:stretch;padding:0 max(8px,calc((100% - 1180px)/2));gap:4px;border-bottom:1px solid var(--line);overflow-x:auto}.nav button{border:0;background:transparent;color:#596574;padding:0 17px;font-weight:750;white-space:nowrap;border-bottom:3px solid transparent}.nav button.active{color:var(--blue);border-bottom-color:var(--blue)}
-.mobile-menu{display:none;background:white;padding:10px 16px;border-bottom:1px solid var(--line);gap:8px}.mobile-menu.open{display:flex;flex-wrap:wrap}.mobile-menu button{background:#f5f7fa;border:1px solid var(--line);border-radius:6px;padding:8px 12px;color:#53606b}
-main{max-width:1180px;margin:auto;padding:23px 18px 52px}.toolbar{display:flex;gap:10px;margin-bottom:25px}.select-wrap{position:relative}.select-wrap:after{content:"⌄";position:absolute;right:11px;top:8px;color:#657181;pointer-events:none;font-size:16px}select{appearance:none;border:1px solid #d8dee7;background:white;border-radius:6px;padding:10px 34px 10px 12px;color:#45505e;min-width:140px;outline-color:var(--blue)}
-h1{font-size:24px;letter-spacing:-.55px;margin:0 0 5px}.sub{font-size:13px;color:var(--muted);margin:0 0 17px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:17px}.card{background:white;border:1px solid var(--line);border-radius:9px;overflow:hidden;min-width:0;box-shadow:0 2px 4px #182b4510;transition:transform .16s,box-shadow .16s}.card:hover{transform:translateY(-3px);box-shadow:0 8px 20px #182b4518}.thumb{aspect-ratio:1.7/1;position:relative;overflow:hidden;background:#dce8f6}.art{position:absolute;inset:0}.a1{background:linear-gradient(135deg,#91e4f0,#4888df 55%,#443a89)}.a2{background:linear-gradient(140deg,#ffd6a0,#f18b72 48%,#8a4386)}.a3{background:linear-gradient(150deg,#9ce9c9,#39a6a2 55%,#195b80)}.a4{background:linear-gradient(135deg,#e7b5ff,#8f70da 52%,#3a4c9a)}.a5{background:linear-gradient(145deg,#b5e8ff,#538fc8 50%,#253a6c)}.a6{background:linear-gradient(135deg,#f7c2a8,#ee8d91 50%,#895a9c)}.art:before{content:"";position:absolute;width:28%;height:53%;left:36%;top:25%;border-radius:14px;background:#fff2c4;box-shadow:0 0 0 8px #ffffff30;transform:rotate(-7deg)}.a2:before{border-radius:50% 50% 8px 8px;background:#fff0cc}.a3:before{transform:rotate(45deg);border-radius:10px;background:#ffe18b}.a4:before{border-radius:50% 50% 12px 12px;background:#fff0a7}.a5:before{clip-path:polygon(50% 0,100% 100%,0 100%);border-radius:0;background:#fff}.a6:before{border-radius:10px;background:#ffe5be;transform:rotate(8deg)}.tag{position:absolute;left:10px;bottom:9px;background:#101827b8;color:white;border-radius:5px;padding:5px 7px;font-size:10px;font-weight:800;letter-spacing:.5px}.card-body{padding:12px 13px}.card-title{font-size:14px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:8px}.meta{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--muted);font-size:11px}.likes{color:#e65d75}.likebar{height:4px;background:#edf0f4;border-radius:5px;overflow:hidden;margin-top:10px}.likebar span{height:100%;display:block;background:#36b77a}.empty{grid-column:1/-1;text-align:center;background:white;border-radius:8px;padding:35px;color:var(--muted)}.toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,15px);background:#202632;color:white;padding:10px 15px;border-radius:7px;opacity:0;pointer-events:none;transition:.2s;z-index:9}.toast.show{opacity:1;transform:translate(-50%,0)}
-@media(min-width:1100px){.grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
-@media(max-width:760px){.topbar{height:57px;padding:0 10px;gap:8px}.brand{font-size:19px;gap:5px}.brandmark{width:28px;height:28px}.search{height:34px;padding:0 8px}.actions{gap:5px}.actions button{padding:8px 9px;font-size:12px}.login{display:none}.nav{height:45px;padding:0 6px}.nav button{padding:0 14px;font-size:13px}main{padding:18px 11px 35px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.thumb{aspect-ratio:1.3/1}.card-body{padding:9px}.card-title{font-size:12px}.meta{font-size:10px}.toolbar{gap:8px}select{min-width:0;width:100%;font-size:12px;padding:10px 27px 10px 9px}.select-wrap{flex:1;min-width:0}.select-wrap:after{right:8px}h1{font-size:22px}}
-@media(max-width:370px){.brand span:last-child{display:none}.actions .signup{padding:8px 7px}.thumb{aspect-ratio:1/1}.meta{font-size:9px}}
+:root{--blue:#1769e0;--ink:#232a35;--muted:#7b8491;--line:#e0e5eb;--page:#f4f5f7}
+*{box-sizing:border-box}body{margin:0;background:var(--page);color:var(--ink);font:14px/1.4 Arial,Helvetica,sans-serif}button,input,select{font:inherit}button{cursor:pointer}
+.topbar{height:62px;background:var(--blue);color:#fff;display:flex;align-items:center;gap:12px;padding:0 16px;position:relative;z-index:3}
+.menu{border:0;background:transparent;color:white;font-size:24px;padding:3px}.brand{display:flex;align-items:center;gap:7px;color:white;text-decoration:none;font-weight:800;font-size:22px;white-space:nowrap}.mark{height:30px;width:30px;display:grid;place-items:center;background:white;color:var(--blue);font-size:22px;font-weight:900;border-radius:4px}
+.search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;background:#fff;color:#657080;border-radius:4px;flex:1;max-width:600px;margin-left:auto}.search input{border:0;outline:0;width:100%;min-width:0;background:transparent;color:#222}.actions{display:flex;gap:7px}.actions button{padding:8px 12px;border-radius:4px;font-weight:700;font-size:13px;white-space:nowrap}.login{border:1px solid #ffffffb8;color:white;background:transparent}.signup{border:1px solid white;color:var(--blue);background:white}
+.nav{height:46px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:stretch;padding:0 16px;gap:6px;overflow-x:auto}.nav button{background:transparent;border:0;padding:0 17px;color:#525d6b;font-weight:700;white-space:nowrap;border-bottom:3px solid transparent}.nav button.active{color:var(--blue);border-bottom-color:var(--blue)}
+.mobile-menu{display:none;background:#fff;padding:9px 12px;border-bottom:1px solid var(--line);gap:7px}.mobile-menu.open{display:flex;flex-wrap:wrap}.mobile-menu button{background:#f5f7fa;border:1px solid var(--line);padding:8px 12px;border-radius:4px}
+main{max-width:1050px;margin:0 auto;padding:20px 16px 44px}.toolbar{display:flex;gap:10px;margin-bottom:24px}.select-wrap{position:relative}.select-wrap:after{content:"⌄";position:absolute;right:10px;top:8px;color:#606a78;pointer-events:none}select{appearance:none;min-width:145px;border:1px solid #d7dce3;background:white;color:#46515e;padding:9px 30px 9px 11px;border-radius:4px}
+h1{font-size:23px;line-height:1.25;margin:0 0 7px;font-weight:750}.sub{color:var(--muted);font-size:13px;margin:0 0 16px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{min-width:0;background:#fff;border:1px solid #dfe4ea;border-radius:5px;overflow:hidden}.thumb{aspect-ratio:1.75/1;position:relative;overflow:hidden;background:#a6c8e9}
+.scene{position:absolute;inset:0;overflow:hidden}.scene:before,.scene:after{content:"";position:absolute;display:block}
+.sky{background:linear-gradient(#67c5f4 0%,#d0efff 64%,#74b65a 65%,#3f8e45 100%)}
+.sky:before{width:27%;height:45%;left:9%;top:15%;background:#fff;border-radius:50%;box-shadow:15px 5px 0 -2px #fff,250px 8px 0 -3px #fff}
+.sky:after{width:17%;height:45%;left:43%;bottom:7%;background:#f0b56e;border:4px solid #8b603e;box-shadow:0 -22px 0 -5px #f5d2a3}
+.sunset{background:linear-gradient(#faac80,#f8d0a0 58%,#a6c77d 59%,#4d9b66)}
+.sunset:before{width:42%;height:42%;border-radius:50%;background:#ffe9a2;left:29%;top:10%;box-shadow:0 0 0 13px #ffe8a044}
+.sunset:after{width:28%;height:44%;left:36%;bottom:0;background:#8a5e9f;border:4px solid #604b83;clip-path:polygon(20% 0,80% 0,100% 100%,0 100%)}
+.neon{background:linear-gradient(135deg,#141d52,#395ed1 48%,#e26acb)}
+.neon:before{inset:12% 0 auto;height:5px;background:#72f4ff;box-shadow:0 35px 0 #f3a2ff,0 70px 0 #72f4ff;transform:skewY(-12deg)}
+.neon:after{width:25%;height:50%;left:38%;bottom:4%;background:#f7d0a2;border:4px solid #26305c;box-shadow:0 -20px 0 -4px #fff}
+.dream{background:linear-gradient(#d5c8ff,#9cafff 56%,#b4e8dc 57%,#60a8a4)}
+.dream:before{width:23%;height:48%;left:18%;bottom:8%;background:#f7d8a6;clip-path:polygon(50% 0,100% 100%,0 100%);box-shadow:100px 0 #fff}
+.dream:after{width:18%;height:39%;right:18%;bottom:7%;background:#fff0c4;border:4px solid #8c78ce;border-radius:8px}
+.blocky{background:linear-gradient(#8bd7f1,#d5f3fa 55%,#79bf68 56%,#4d9850)}
+.blocky:before{width:19%;height:42%;left:18%;bottom:5%;background:#f6d0a2;border:4px solid #6d8b56;box-shadow:130px -8px 0 -3px #b58be4}
+.blocky:after{width:30%;height:25%;left:36%;bottom:0;background:#d8a878;border:4px solid #6d8b56}
+.color{background:linear-gradient(125deg,#ffb8d1,#c2a2ff 52%,#83d9e8)}
+.color:before{width:22%;height:45%;left:39%;bottom:8%;background:#ffdf9b;border:4px solid #a45f9e;border-radius:4px;transform:rotate(8deg)}
+.color:after{width:14%;height:28%;left:15%;bottom:8%;background:#7de0b4;border:4px solid #347c87;transform:rotate(-12deg)}
+.tag{position:absolute;left:8px;bottom:8px;background:#17202dcc;color:white;padding:4px 6px;border-radius:3px;font-size:10px;font-weight:700}
+.card-body{padding:10px 11px}.card-title{font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:7px}.meta{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#727c89;font-size:11px}.likes{color:#e05c73;white-space:nowrap}.likebar{height:4px;background:#eceff2;border-radius:5px;overflow:hidden;margin-top:9px}.likebar span{height:100%;display:block;background:#3dbb79}.empty{grid-column:1/-1;background:white;padding:30px;text-align:center;color:var(--muted);border:1px solid var(--line)}
+.toast{position:fixed;bottom:18px;left:50%;transform:translate(-50%,10px);background:#202632;color:white;padding:10px 14px;border-radius:5px;opacity:0;transition:.2s;z-index:5;pointer-events:none}.toast.show{opacity:1;transform:translate(-50%,0)}
+@media(max-width:600px){.topbar{height:58px;padding:0 8px;gap:7px}.brand{font-size:19px;gap:5px}.mark{height:27px;width:27px;font-size:20px}.search{height:34px;padding:0 7px}.actions{gap:5px}.actions button{padding:8px 8px;font-size:12px}.login{display:none}.nav{height:44px;padding:0 5px;gap:1px}.nav button{padding:0 13px;font-size:13px}main{padding:17px 10px 32px}.grid{gap:9px}.thumb{aspect-ratio:1.35/1}.card-body{padding:8px}.card-title{font-size:12px;margin-bottom:6px}.meta{font-size:10px}.toolbar{gap:8px;margin-bottom:22px}.select-wrap{flex:1;min-width:0}select{width:100%;min-width:0;padding:9px 25px 9px 8px;font-size:12px}h1{font-size:21px}.sub{margin-bottom:13px}}
+@media(max-width:350px){.brand .word{display:none}.actions .signup{padding:8px 6px}.meta{font-size:9px}}
 </style>
 </head>
 <body>
 <header class="topbar">
-<button class="iconbtn" id="menuToggle" aria-label="Toggle menu">☰</button>
-<a class="brand" href="#" aria-label="OGretro Home"><span class="brandmark">O</span><span>ogretro</span></a>
-<label class="search"><span aria-hidden="true">⌕</span><input id="searchInput" type="search" placeholder="Search games" aria-label="Search games"></label>
+<button class="menu" id="menuToggle" aria-label="Open menu">☰</button>
+<a class="brand" href="#" aria-label="OGretro home"><span class="mark">O</span><span class="word">OGretro</span></a>
+<label class="search"><span aria-hidden="true">⌕</span><input id="searchInput" type="search" placeholder="Search" aria-label="Search games"></label>
 <div class="actions"><button class="login" data-nav="Login">Login</button><button class="signup" data-nav="Sign Up">Sign Up</button></div>
 </header>
-<div class="mobile-menu" id="mobileMenu"><button data-nav="Home">Home</button><button data-nav="Games">Games</button><button data-nav="Catalog">Catalog</button><button data-nav="Create">Create</button><button data-nav="Download">Download</button></div>
-<nav class="nav" aria-label="Main navigation"><button class="active" data-nav="Home">Home</button><button data-nav="Games">Games</button><button data-nav="Catalog">Catalog</button><button data-nav="Create">Create</button><button data-nav="Download">Download</button></nav>
+<div class="mobile-menu" id="mobileMenu"><button data-nav="Games">Games</button><button data-nav="Catalog">Catalog</button><button data-nav="Create">Create</button><button data-nav="Download">Download</button></div>
+<nav class="nav" aria-label="Main navigation"><button class="active" data-nav="Games">Games</button><button data-nav="Catalog">Catalog</button><button data-nav="Create">Create</button><button data-nav="Download">Download</button></nav>
 <main>
 <div class="toolbar"><div class="select-wrap"><select id="sortSelect" aria-label="Sort games"><option value="popular">Default</option><option value="likes">Most Liked</option><option value="players">Most Players</option><option value="newest">Newest</option></select></div><div class="select-wrap"><select id="yearSelect" aria-label="Filter by year"><option value="all">All Years</option><option>2026</option><option>2025</option><option>2024</option><option>2023</option></select></div></div>
 <section aria-labelledby="popularTitle"><h1 id="popularTitle">Popular</h1><p class="sub" id="sectionSub">Discover what's popular right now.</p><div class="grid" id="cardGrid" aria-live="polite"></div></section>
 </main><div class="toast" id="toast" role="status"></div>
 <script>
 const games=[
-{title:"Skyline Adventures",players:12480,year:2026,likes:96,art:"a1",tag:"EXPLORE"},
-{title:"Cozy Town",players:9830,year:2025,likes:92,art:"a2",tag:"LIFE SIM"},
-{title:"Neon Obby",players:7620,year:2026,likes:89,art:"a3",tag:"OBBY"},
-{title:"Dream World",players:6340,year:2024,likes:95,art:"a4",tag:"ADVENTURE"},
-{title:"Cloud Climb",players:5210,year:2025,likes:87,art:"a5",tag:"CHALLENGE"},
-{title:"Color Quest",players:3890,year:2023,likes:91,art:"a6",tag:"CASUAL"}
+{title:"Skyline Adventures",players:12480,year:2026,likes:96,art:"sky",tag:"EXPLORE"},
+{title:"Cozy Town",players:9830,year:2025,likes:92,art:"sunset",tag:"LIFE SIM"},
+{title:"Neon Obby",players:7620,year:2026,likes:89,art:"neon",tag:"OBBY"},
+{title:"Dream World",players:6340,year:2024,likes:95,art:"dream",tag:"ADVENTURE"},
+{title:"Cloud Climb",players:5210,year:2025,likes:87,art:"blocky",tag:"CHALLENGE"},
+{title:"Color Quest",players:3890,year:2023,likes:91,art:"color",tag:"CASUAL"}
 ];
 const grid=document.getElementById("cardGrid"),search=document.getElementById("searchInput"),year=document.getElementById("yearSelect"),sort=document.getElementById("sortSelect");
-function render(){let items=games.filter(g=>(year.value==="all"||String(g.year)===year.value)&&g.title.toLowerCase().includes(search.value.trim().toLowerCase()));if(sort.value==="likes")items.sort((a,b)=>b.likes-a.likes);if(sort.value==="players")items.sort((a,b)=>b.players-a.players);if(sort.value==="newest")items.sort((a,b)=>b.year-a.year);grid.innerHTML=items.length?items.map(g=>'<article class="card"><div class="thumb"><div class="art '+g.art+'"></div><span class="tag">'+g.tag+'</span></div><div class="card-body"><div class="card-title">'+g.title+'</div><div class="meta"><span>♟ '+g.players.toLocaleString("en-US")+' · '+g.year+'</span><span class="likes">♥ '+g.likes+'%</span></div><div class="likebar"><span style="width:'+g.likes+'%"></span></div></div></article>').join(""):'<div class="empty">No games found. Try another search or filter.</div>'}
+function render(){let items=games.filter(g=>(year.value==="all"||String(g.year)===year.value)&&g.title.toLowerCase().includes(search.value.trim().toLowerCase()));if(sort.value==="likes")items.sort((a,b)=>b.likes-a.likes);if(sort.value==="players")items.sort((a,b)=>b.players-a.players);if(sort.value==="newest")items.sort((a,b)=>b.year-a.year);grid.innerHTML=items.length?items.map(g=>'<article class="card"><div class="thumb"><div class="scene '+g.art+'"></div><span class="tag">'+g.tag+'</span></div><div class="card-body"><div class="card-title">'+g.title+'</div><div class="meta"><span>♟ '+g.players.toLocaleString("en-US")+' · '+g.year+'</span><span class="likes">♥ '+g.likes+'%</span></div><div class="likebar"><span style="width:'+g.likes+'%"></span></div></div></article>').join(""):'<div class="empty">No games found. Try another search or filter.</div>'}
 search.addEventListener("input",render);year.addEventListener("change",render);sort.addEventListener("change",render);
 const toast=document.getElementById("toast");let toastTimer;function notify(s){toast.textContent=s;toast.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.classList.remove("show"),2200)}
-document.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click",()=>{const n=b.dataset.nav;if(n==="Home"){document.querySelectorAll(".nav button").forEach(x=>x.classList.toggle("active",x.dataset.nav==="Home"));document.getElementById("mobileMenu").classList.remove("open");window.scrollTo({top:0,behavior:"smooth"})}else notify(n+" page is not connected yet.")}));
+document.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click",()=>{const n=b.dataset.nav;if(n==="Games"){document.querySelectorAll(".nav button").forEach(x=>x.classList.toggle("active",x.dataset.nav==="Games"));document.getElementById("mobileMenu").classList.remove("open");window.scrollTo({top:0,behavior:"smooth"})}else notify(n+" page is not connected yet.")}));
 document.getElementById("menuToggle").addEventListener("click",()=>document.getElementById("mobileMenu").classList.toggle("open"));render();
 </script>
 </body>
